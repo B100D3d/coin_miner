@@ -1,9 +1,10 @@
 import chalk from "chalk"
+import moment from "moment"
 
-const date = () => new Date().toLocaleString()
+const date = () => moment().format("DD.MM.YYYY hh:mm:ss")
 class Logger {
     static log(...text: Array<any>): void {
-        console.log(`[${chalk.cyan(date())}]`, ...text)
+        console.log(chalk.cyan(`[${date()}]`), ...text)
     }
 
     static info(...text: Array<any>): void {

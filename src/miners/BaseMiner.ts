@@ -1,10 +1,14 @@
 import chalk from "chalk"
 import crypto from "crypto"
+import { parse as parseHTML } from "node-html-parser"
 import { TelegramClient, Api } from "telegram"
 import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
 import { random, stringify, timeout } from "../utils"
 import MinerLogger from "../utils/miner_logger"
+import Logger from "../utils/logger"
+import * as FlareSolver from "../services/FlareSolver"
+import axios from "axios"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 
@@ -48,8 +52,6 @@ export default class BaseMiner {
         this.client = client
         this.phone = phone
         this.logger = new MinerLogger({ phone, coinName: this.COIN_NAME })
-
-        this.setBalanceTimeout()
     }
 
     private setBalanceTimeout() {
@@ -59,35 +61,16 @@ export default class BaseMiner {
         )
     }
 
-    private async trySkip(func, event) {
-        try {
-            await func()
-        } catch (e) {
-            if (e instanceof FloodWaitError) {
-                this.logger.warning(`Waiting flood wait error...${e}`)
-                await this.sleep(e.seconds)
-                await this.trySkip(func, event)
-                return
-            }
-
-            this.logger.error(e)
-            await this.skipTask(event)
-        }
-    }
-
-    private async startClickBot() {
-        await this.client.invoke(new Api.contacts.Unblock({ id: this.ENTITY }))
-        await this.client.invoke(
-            new Api.messages.StartBot({
-                bot: this.ENTITY,
-                peer: this.ENTITY,
-                startParam: START_REFERRAL_CODE,
-            })
-        )
+    private async sendMessage(message: string) {
+        await this.client.sendMessage(this.ENTITY, { message })
     }
 
     private async startJob() {
-        await this.client.sendMessage(this.ENTITY, { message: this.currentJob })
+        await this.sendMessage(this.currentJob)
+    }
+
+    private async checkBalance() {
+        await this.sendMessage(BALANCE_GETTER)
     }
 
     private async sleep(seconds: number) {
@@ -95,8 +78,8 @@ export default class BaseMiner {
         await timeout(seconds * 1000)
     }
 
-    private getButton(event: any, pattern: string) {
-        const markup = event.message.replyMarkup
+    private getButton(event: NewMessageEvent, pattern: string) {
+        const markup = event.message.replyMarkup as Api.ReplyKeyboardMarkup
         const rows = markup.rows
         const buttons = rows.flatMap((row) => row.buttons)
         const button = buttons.find((b) => b.text.includes(pattern))
@@ -115,47 +98,133 @@ export default class BaseMiner {
         }
     }
 
-    private async showEvent(event) {
-        if (event.originalUpdate.className !== "UpdateNewMessage") return
-        if (event.message.replyMarkup?.className !== "ReplyInlineMarkup") return
+    private async switchJob() {
+        const currentIndex = JOBS.indexOf(this.currentJob)
+        if (currentIndex === JOBS.length - 1) {
+            this.currentJob = JOBS[0]
 
-        const markup = event.message.replyMarkup
-        const firstButton = markup.rows?.[0].buttons?.[0]
-        const text = firstButton?.text
-        const url = firstButton?.url
+            if (this.needCheckBalance) {
+                await this.checkBalance()
+                this.needCheckBalance = !this.needCheckBalance
+                this.setBalanceTimeout()
+            }
+
+            this.logger.log(chalk.magenta("All jobs completed. Waiting now..."))
+            await this.sleep(120)
+            await this.startJob()
+            return
+        }
+
+        this.currentJob = JOBS[currentIndex + 1]
+        this.logger.log(chalk.blue(`Switch to ${this.currentJob} job`))
+        await this.sleep(2)
+        await this.startJob()
+    }
+
+    private async trySkip(func, event) {
+        try {
+            await func()
+        } catch (e) {
+            if (e instanceof FloodWaitError) {
+                this.logger.warning(`Waiting flood wait error...${e}`)
+                await this.sleep(e.seconds)
+                this.trySkip(func, event)
+                return
+            }
+
+            this.logger.error(e)
+            await this.skipTask(event)
+        }
+    }
+
+    private async startBot(entity: string, startParam?: string) {
+        await this.client.invoke(new Api.contacts.Unblock({ id: entity }))
+        if (startParam) {
+            await this.client.invoke(
+                new Api.messages.StartBot({
+                    bot: entity,
+                    peer: entity,
+                    startParam,
+                })
+            )
+        } else {
+            await this.client.sendMessage(entity, { message: "/start" })
+        }
+    }
+
+    private async startClickBot() {
+        await this.startBot(this.ENTITY, START_REFERRAL_CODE)
+    }
+
+    private async websiteHandler(event: NewMessageEvent, url) {
+        this.logger.log(`Visit site ${url}`)
+
+        const req = await FlareSolver.get(url)
+        const html = parseHTML(req.response)
+
+        const bar = html.querySelector("#headbar")
+        if (!bar) return
+
+        const barCode = bar.getAttribute("data-code")
+        const barTime = +bar.getAttribute("data-timer")
+        const barToken = bar.getAttribute("data-token")
+        if (!barCode || !barToken) {
+            this.logger.warning("Site with headbar has no code or token")
+            await this.skipTask(event)
+        }
+
+        this.logger.log(`Waiting for a headbar timer: ${barTime} seconds...`)
+        await this.sleep(barTime)
+        const parsedUrl = new URL(url)
+        const rewardUrl = `${parsedUrl.protocol}://${parsedUrl.hostname}/reward`
+        await axios.post(rewardUrl, { code: barCode, token: barToken })
+    }
+
+    private async mainHandler(event: NewMessageEvent) {
+        if (event.originalUpdate instanceof Api.UpdateNewMessage) return
+        if (event.message.replyMarkup instanceof Api.ReplyInlineMarkup) return
+
+        const markup = event.message.replyMarkup as Api.ReplyKeyboardMarkup
+        const buttons = markup.rows.flatMap((row) => row.buttons)
+        const firstButton = buttons[0]
+
+        if (!(firstButton instanceof Api.KeyboardButtonUrl)) return
+
+        const text = firstButton.text
+        const url = firstButton.url
 
         const handlers = {
-            website: (event, url) => {},
+            website: this.websiteHandler.bind(this),
             bot: (event, url) => {},
             channel: (event, url) => {},
             group: (event, url) => {},
         }
 
-        for (const [type, handler] of Object.entries(handlers)) {
-            if (text.includes(type)) {
-                this.logger.log(
-                    chalk.cyan(
-                        `Got message, ${type} handler will start after 2 seconds...`
-                    )
-                )
-                await this.sleep(2)
+        const type = Object.keys(handlers).find(([t]) => text.includes(t))
+        if (!type) return
+        const handler = handlers[type]
 
-                await this.trySkip(() => handler(event, url), event)
-                return
-            }
-        }
+        this.logger.log(
+            chalk.cyan(
+                `Got message, ${type} handler will start after 2 seconds...`
+            )
+        )
+        await this.sleep(2)
+        await this.trySkip(() => handler(event, url), event)
     }
 
     async startMining() {
-        console.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
+        Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
         const chats = [this.ENTITY]
 
         this.client.addEventHandler(
-            (event) => this.showEvent(event),
+            (event) => this.mainHandler(event),
             new NewMessage({ chats })
         )
 
+        this.setBalanceTimeout()
         await this.startClickBot()
+        await this.checkBalance()
         await this.startJob()
     }
 }

@@ -9,8 +9,8 @@ interface MinerLoggerSettings {
 const time = () => moment().format("hh:mm:ss")
 
 class MinerLogger {
-    private phone
-    private name
+    private readonly phone
+    private readonly name
     constructor({ phone, coinName }: MinerLoggerSettings) {
         this.phone = phone
         this.name = coinName
@@ -18,7 +18,7 @@ class MinerLogger {
 
     log(msg: string) {
         console.log(
-            `${chalk.cyan(time())} (${this.name} | ${this.phone}) ${msg}`
+            `${chalk.cyan(`[${time()}]`)} (${this.name} | ${this.phone}) ${msg}`
         )
     }
 
