@@ -31,6 +31,7 @@ module.exports = {
         "@typescript-eslint/no-empty-function": "off",
         "no-restricted-syntax": "off",
         "no-await-in-loop": "off",
+        "consistent-return": "off",
     },
     settings: {
         "import/resolver": {
