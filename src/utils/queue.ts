@@ -1,24 +1,48 @@
-export class GroupQueue {
-    groups = new Map<string, Set<CallableFunction>>()
+interface QueueJob {
+    hash: any
+    resolve?: CallableFunction
+}
 
-    private async run(group: string): Promise<void> {
-        const functions = this.groups.get(group)
-        if (!functions?.size) return
+export default class Queue {
+    private readonly concurrencyCount
+    private readonly runningJobs: Array<QueueJob> = []
+    private readonly waitingJobs: Array<QueueJob> = []
 
-        const func = functions[0]
-        await func()
-        functions.delete(func)
-        this.run(group)
+    constructor(concurrencyCount: number) {
+        this.concurrencyCount = concurrencyCount
     }
 
-    queue(group: string, func: CallableFunction): void {
-        if (!this.groups.has(group)) {
-            this.groups.set(group, new Set())
+    private dequeue(job: QueueJob) {
+        const jobIndex = this.runningJobs.indexOf(job)
+        this.runningJobs.splice(jobIndex, 1)
+    }
+
+    /**
+     * waiting for a slot in the queue
+     * @param hash {any} Unique job identifier
+     */
+    async wait(hash: any) {
+        const job: QueueJob = { hash }
+
+        if (this.runningJobs.length >= this.concurrencyCount) {
+            const promise = new Promise((resolve) => (job.resolve = resolve))
+            this.waitingJobs.push(job)
+            await promise
         }
-        const functions = this.groups.get(group)
-        functions.add(func)
-        if (functions.size === 1) {
-            this.run(group)
-        }
+
+        this.runningJobs.push(job)
+    }
+
+    /**
+     * signals that the "hash" task has finished. <br>
+     * frees its slot in the queue
+     * @param hash {any} Unique job identifier
+     */
+    end(hash: any) {
+        const job = this.runningJobs.find((j) => j.hash === hash)
+        if (!job) throw new Error("Queue desync")
+        this.dequeue(job)
+        const nextWaiting = this.waitingJobs.shift()
+        nextWaiting?.resolve()
     }
 }

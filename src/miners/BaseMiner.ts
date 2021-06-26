@@ -10,7 +10,7 @@ import { getFirstDigits, random, stringify, timeout } from "../utils"
 import MinerLogger from "../utils/miner_logger"
 import Logger from "../utils/logger"
 import * as FlareSolver from "../services/FlareSolver"
-import { GroupQueue } from "../utils/queue"
+import GroupQueue from "../utils/group_queue"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 
