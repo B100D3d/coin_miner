@@ -2,6 +2,14 @@ import { pickBy } from "lodash"
 
 export const timeout = (ms) => new Promise((r) => setTimeout(r, ms))
 
+export const getFirstDigits = (str: string) => {
+    const digits = str
+        .split(" ")
+        .map((word) => parseFloat(word))
+        .filter((word) => !Number.isNaN(word))
+    return digits.length ? digits[0] : null
+}
+
 export const parseJSON = (str, defaultValue) => {
     if (!str) return defaultValue
     try {

@@ -1,14 +1,16 @@
 import chalk from "chalk"
 import crypto from "crypto"
 import { parse as parseHTML } from "node-html-parser"
+import axios from "axios"
+import moment from "moment"
 import { TelegramClient, Api } from "telegram"
 import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
-import { random, stringify, timeout } from "../utils"
+import { getFirstDigits, random, stringify, timeout } from "../utils"
 import MinerLogger from "../utils/miner_logger"
 import Logger from "../utils/logger"
 import * as FlareSolver from "../services/FlareSolver"
-import axios from "axios"
+import { GroupQueue } from "../utils/queue"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 
@@ -32,10 +34,17 @@ const START_COMMAND = "/start"
 const MAX_CHANNELS_PER_HOUR = 10
 const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
 
+interface MinerProps {
+    client: TelegramClient
+    phone: string
+    groupQueue: GroupQueue
+}
+
 export default class BaseMiner {
     client: TelegramClient
     phone: string
     logger: MinerLogger
+    groupQueue: GroupQueue
 
     ENTITY = ""
     COIN_NAME = ""
@@ -48,10 +57,11 @@ export default class BaseMiner {
     balance = 0
     earned = 0
 
-    constructor(client: TelegramClient, phone: string) {
+    constructor({ client, phone, groupQueue }: MinerProps) {
         this.client = client
         this.phone = phone
         this.logger = new MinerLogger({ phone, coinName: this.COIN_NAME })
+        this.groupQueue = groupQueue
     }
 
     private setBalanceTimeout() {
@@ -82,19 +92,28 @@ export default class BaseMiner {
         const markup = event.message.replyMarkup as Api.ReplyKeyboardMarkup
         const rows = markup.rows
         const buttons = rows.flatMap((row) => row.buttons)
-        const button = buttons.find((b) => b.text.includes(pattern))
-        if (!button) return null
-
-        const index = buttons.indexOf(button)
-        return { button, index }
+        return buttons.find((b) => b.text.includes(pattern))
     }
 
-    private async skipTask(event) {
+    private async clickButton(
+        messageId: number,
+        button: Api.KeyboardButtonCallback
+    ) {
+        await this.client.invoke(
+            new Api.messages.GetBotCallbackAnswer({
+                peer: this.ENTITY,
+                msgId: messageId,
+                data: button.data,
+            })
+        )
+    }
+
+    private async skipTask(event: NewMessageEvent) {
         this.logger.log("Skip task")
         const skipButton = this.getButton(event, "Skip")
-        if (skipButton) {
+        if (skipButton instanceof Api.KeyboardButtonCallback) {
             await this.sleep(2)
-            await event.message.click(skipButton.index)
+            await this.clickButton(event.message.id, skipButton)
         }
     }
 
@@ -137,7 +156,7 @@ export default class BaseMiner {
         }
     }
 
-    private async startBot(entity: string, startParam?: string) {
+    private async startBot(entity: Api.TypeEntityLike, startParam?: string) {
         await this.client.invoke(new Api.contacts.Unblock({ id: entity }))
         if (startParam) {
             await this.client.invoke(
@@ -156,7 +175,126 @@ export default class BaseMiner {
         await this.startBot(this.ENTITY, START_REFERRAL_CODE)
     }
 
-    private async websiteHandler(event: NewMessageEvent, url) {
+    private async blockBot(entity: string) {
+        await this.client.invoke(new Api.contacts.Block({ id: entity }))
+        await this.client.invoke(
+            new Api.contacts.DeleteContacts({ id: [entity] })
+        )
+    }
+
+    private async leaveChannels() {
+        const dialogs = await this.client.getDialogs({})
+        const entities = dialogs.map((dialog) => dialog.entity)
+        const channels = entities.filter(
+            (entity) => entity instanceof Api.Channel
+        ) as Array<Api.Channel>
+
+        const twelveHoursAgo = moment().subtract(12, "hours").toDate()
+        const filteredChannels = channels.filter(
+            (channel) => new Date(channel.date) >= twelveHoursAgo
+        )
+
+        const leave = async (channel: Api.TypeEntityLike) => {
+            await this.client.invoke(new Api.channels.LeaveChannel({ channel }))
+        }
+        for (const channel of filteredChannels) {
+            try {
+                await leave(channel)
+            } catch (e) {
+                if (e instanceof FloodWaitError) {
+                    this.logger.warning("Flood error")
+                    await this.sleep(e.seconds)
+                    await leave(channel)
+                }
+            }
+        }
+        await this.sleep(2)
+    }
+
+    private async joinChannel(channel: Api.TypeEntityLike) {
+        await this.client.invoke(new Api.channels.JoinChannel({ channel }))
+    }
+
+    private async channelToQueue(
+        event: NewMessageEvent,
+        channel: Api.TypeEntityLike
+    ) {
+        const join = async () => {
+            this.logger.log(`Join channel ${channel}`)
+            try {
+                await this.joinChannel(channel)
+                const joinedButton = this.getButton(event, "Joined")
+                if (joinedButton instanceof Api.KeyboardButtonCallback) {
+                    await this.sleep(random(40, 50))
+                    await this.clickButton(event.message.id, joinedButton)
+                    this.logger.log(`Channel ${channel} successfully joined`)
+                } else {
+                    await this.skipTask(event)
+                }
+            } catch (e) {
+                if (e instanceof FloodWaitError) {
+                    this.logger.warning("Waiting flood wait error...")
+                    await this.sleep(e.seconds)
+                    await join()
+                } else {
+                    await this.leaveChannels()
+                    await join()
+                }
+            }
+        }
+
+        if (this.joinedChannels === MAX_CHANNELS_PER_HOUR - 1) {
+            setTimeout(() => (this.joinedChannels = 0), ONE_HOUR)
+        }
+
+        if (this.joinedChannels < MAX_CHANNELS_PER_HOUR) {
+            this.logger.log("Add join task to queue...")
+            this.groupQueue.queue(this.phone, join)
+            this.joinedChannels += 1
+        } else {
+            await this.switchJob()
+        }
+    }
+
+    private async channelsHandler(event: NewMessageEvent, url: string) {
+        const req = await FlareSolver.get(url)
+        const reqUrl = new URL(req.url)
+        const channel = reqUrl.pathname.replace(/\//g, "")
+        await this.channelToQueue(event, channel)
+    }
+
+    private async botsHandler(event: NewMessageEvent, url: string) {
+        const req = await FlareSolver.get(url)
+        const reqUrl = new URL(req.url)
+        const startParam = reqUrl.searchParams.get("start")
+        const bot = reqUrl.pathname.replace(/\//g, "")
+
+        await this.startBot(bot, startParam)
+
+        this.logger.log(`Messaged to bot ${bot}, waiting for answer...`)
+        await this.sleep(10)
+
+        const messages = await this.client.getMessages(bot, {
+            fromUser: bot,
+            limit: 2,
+        })
+
+        if (messages.length === 0) {
+            this.logger.error(`Bot ${bot} didn't answer`)
+            await this.blockBot(bot)
+            await this.skipTask(event)
+            return
+        }
+
+        const message = messages[0]
+        await this.client.forwardMessages(this.ENTITY, {
+            messages: [message.id],
+            fromPeer: bot,
+        })
+        await this.blockBot(bot)
+    }
+
+    private async websiteHandler(event: NewMessageEvent, url: string) {
         this.logger.log(`Visit site ${url}`)
 
         const req = await FlareSolver.get(url)
@@ -195,9 +333,9 @@ export default class BaseMiner {
 
         const handlers = {
             website: this.websiteHandler.bind(this),
-            bot: (event, url) => {},
-            channel: (event, url) => {},
-            group: (event, url) => {},
+            bot: this.botsHandler.bind(this),
+            channel: this.channelsHandler.bind(this),
+            group: this.channelsHandler.bind(this),
         }
 
         const type = Object.keys(handlers).find(([t]) => text.includes(t))
@@ -211,6 +349,57 @@ export default class BaseMiner {
         )
         await this.sleep(2)
         await this.trySkip(() => handler(event, url), event)
+    }
+
+    private async switchHandler() {
+        this.logger.warning("No ads, switch")
+        await this.switchJob()
+    }
+
+    private async earnedHandler(event: NewMessageEvent) {
+        this.logger.log(chalk.greenBright(event.message.rawText))
+        try {
+            const earned = getFirstDigits(event.message.rawText)
+            if (!earned) return
+            this.earned += earned
+            this.balance += earned
+        } catch (e) {
+            this.logger.error(`Earned Error: ${e}`)
+        }
+    }
+
+    private async balanceHandler(event: NewMessageEvent) {
+        this.logger.log(chalk.green(event.message.rawText))
+        try {
+            const balance = getFirstDigits(event.message.rawText)
+            if (!balance) return
+            this.balance = balance
+            if (balance > this.MIN_WITHDRAW) {
+                this.logger.log(
+                    `Balance greater than min withdraw ${this.MIN_WITHDRAW}`
+                )
+                await this.sleep(2)
+                await this.sendMessage(WITHDRAW_QUERY)
+            }
+        } catch (e) {
+            this.logger.error(`Balance Error: ${e}`)
+        }
+    }
+
+    private async withdrawHandler() {
+        this.logger.log(chalk.magentaBright("Withdraw..."))
+        await this.sleep(3)
+        await this.sendMessage(this.ADDRESS)
+    }
+
+    private async skipHandler(event: NewMessageEvent) {
+        this.logger.error(`${event.message.rawText}. Skip task`)
+        await this.skipTask(event)
+    }
+
+    private async noValidHandler(event: NewMessageEvent) {
+        this.logger.error(event.message.rawText)
+        await this.startJob()
     }
 
     async startMining() {
