@@ -6,6 +6,13 @@ interface MinerLoggerSettings {
     coinName: string
 }
 
+type LogType = "info" | "warning" | "error"
+interface LogItem {
+    type: LogType
+    message: string
+    date: Date
+}
+
 const time = () => moment().format("hh:mm:ss")
 
 class MinerLogger {
@@ -16,18 +23,29 @@ class MinerLogger {
         this.name = coinName
     }
 
-    log(msg: string) {
-        console.log(
-            `${chalk.cyan(`[${time()}]`)} (${this.name} | ${this.phone}) ${msg}`
-        )
+    static logsList: Array<LogItem> = []
+    static getLogs(): Array<LogItem> {
+        return MinerLogger.logsList
+    }
+
+    log(msg: string, type: LogType = "info") {
+        const message = `${chalk.cyan(`[${time()}]`)} (${this.name} | ${
+            this.phone
+        }) ${msg}`
+        console.log(message)
+        MinerLogger.logsList.push({
+            type,
+            message,
+            date: new Date(),
+        })
     }
 
     error(msg: string) {
-        this.log(chalk.red(`Error: ${msg}`))
+        this.log(chalk.red(`Error: ${msg}`), "error")
     }
 
     warning(msg: string) {
-        this.log(chalk.yellow(msg))
+        this.log(chalk.yellow(msg), "warning")
     }
 }
 
