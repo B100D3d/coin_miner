@@ -12,20 +12,26 @@ interface FlareSolution {
     response: string
 }
 
-export const createSession = () =>
-    axios.post(flareUrl, {
-        cmd: "sessions.create",
-        session: flareSession,
-    })
+export default class FlareSolver {
+    static createSession() {
+        axios.post(flareUrl, {
+            cmd: "sessions.create",
+            session: flareSession,
+        })
+    }
 
-export const get = async (url: string): Promise<FlareSolution> => {
-    const job = Symbol(url)
-    await queue.wait(job)
-    const result = await axios.post(flareUrl, {
-        cmd: "request.get",
-        session: flareSession,
-        url,
-    })
-    queue.end(job)
-    return result.data.solution
+    static async get(url: string): Promise<FlareSolution> {
+        const job = Symbol(url)
+        try {
+            await queue.wait(job)
+            const result = await axios.post(flareUrl, {
+                cmd: "request.get",
+                session: flareSession,
+                url,
+            })
+            return result.data.solution
+        } finally {
+            queue.end(job)
+        }
+    }
 }

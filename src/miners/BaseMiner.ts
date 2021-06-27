@@ -1,27 +1,27 @@
 import chalk from "chalk"
-import crypto from "crypto"
 import { parse as parseHTML } from "node-html-parser"
 import axios from "axios"
 import moment from "moment"
 import { TelegramClient, Api } from "telegram"
 import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
-import { getFirstDigits, random, stringify, timeout } from "../utils"
+import { getFirstDigits, random, timeout } from "../utils"
 import MinerLogger from "../utils/miner_logger"
 import Logger from "../utils/logger"
-import * as FlareSolver from "../services/FlareSolver"
-import GroupQueue from "../utils/group_queue"
+import FlareSolver from "../services/FlareSolver"
+import Queue from "../utils/queue"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 
 const START_REFERRAL_CODE = process.env.START_REFERRAL_CODE
 
-const NO_ADS_PATTERS = "Sorry, there are no new ads available."
+const NO_ADS_PATTERS = /Sorry, there are no new ads available./g
 const EARNED_PATTERN = /.*you earned.*/gi
-const CANNOT_PATTERN = "We cannot"
-const NO_VALID_PATTERN = "Sorry, that task"
-const BALANCE_PATTERN = "Available balance"
-const WITHDRAW_PATTERN = "To withdraw, enter"
+const CANNOT_PATTERN = /We cannot/g
+const NO_VALID_PATTERN = /Sorry, that task/g
+const BALANCE_PATTERN = /Available balance/g
+const WITHDRAW_PATTERN = /To withdraw, enter/g
+const AGREE_PATTERN = /you must agree to our/g
 
 const ONE_HOUR = 1000 * 60 * 60
 const FIVE_MINUTES = 1000 * 60 * 5
@@ -29,22 +29,20 @@ const FIVE_MINUTES = 1000 * 60 * 5
 const BALANCE_GETTER = "💰 Balance"
 const WITHDRAW_QUERY = "💵 Withdraw"
 
-const START_COMMAND = "/start"
-
 const MAX_CHANNELS_PER_HOUR = 10
 const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
 
 interface MinerProps {
     client: TelegramClient
     phone: string
-    groupQueue: GroupQueue
+    channelsQueue: Queue
 }
 
 export default class BaseMiner {
     client: TelegramClient
     phone: string
     logger: MinerLogger
-    groupQueue: GroupQueue
+    channelsQueue: Queue
 
     ENTITY = ""
     COIN_NAME = ""
@@ -57,11 +55,11 @@ export default class BaseMiner {
     balance = 0
     earned = 0
 
-    constructor({ client, phone, groupQueue }: MinerProps) {
+    constructor({ client, phone, channelsQueue }: MinerProps) {
         this.client = client
         this.phone = phone
         this.logger = new MinerLogger({ phone, coinName: this.COIN_NAME })
-        this.groupQueue = groupQueue
+        this.channelsQueue = channelsQueue
     }
 
     private setBalanceTimeout() {
@@ -215,14 +213,26 @@ export default class BaseMiner {
         await this.client.invoke(new Api.channels.JoinChannel({ channel }))
     }
 
-    private async channelToQueue(
-        event: NewMessageEvent,
-        channel: Api.TypeEntityLike
-    ) {
+    private async channelsHandler(event: NewMessageEvent, url: string) {
+        const req = await FlareSolver.get(url)
+        const reqUrl = new URL(req.url)
+        const channel = reqUrl.pathname.replace(/\//g, "")
+        const job = Symbol(channel)
+        await this.channelsQueue.wait(job)
+
+        if (this.joinedChannels >= MAX_CHANNELS_PER_HOUR) {
+            await this.switchJob()
+            return
+        }
+
         const join = async () => {
             this.logger.log(`Join channel ${channel}`)
             try {
                 await this.joinChannel(channel)
+                this.joinedChannels += 1
+                if (this.joinedChannels === MAX_CHANNELS_PER_HOUR - 1) {
+                    setTimeout(() => (this.joinedChannels = 0), ONE_HOUR)
+                }
                 const joinedButton = this.getButton(event, "Joined")
                 if (joinedButton instanceof Api.KeyboardButtonCallback) {
                     await this.sleep(random(40, 50))
@@ -242,25 +252,8 @@ export default class BaseMiner {
                 }
             }
         }
-
-        if (this.joinedChannels === MAX_CHANNELS_PER_HOUR - 1) {
-            setTimeout(() => (this.joinedChannels = 0), ONE_HOUR)
-        }
-
-        if (this.joinedChannels < MAX_CHANNELS_PER_HOUR) {
-            this.logger.log("Add join task to queue...")
-            this.groupQueue.queue(this.phone, join)
-            this.joinedChannels += 1
-        } else {
-            await this.switchJob()
-        }
-    }
-
-    private async channelsHandler(event: NewMessageEvent, url: string) {
-        const req = await FlareSolver.get(url)
-        const reqUrl = new URL(req.url)
-        const channel = reqUrl.pathname.replace(/\//g, "")
-        await this.channelToQueue(event, channel)
+        await join()
+        this.channelsQueue.end(job)
     }
 
     private async botsHandler(event: NewMessageEvent, url: string) {
@@ -402,9 +395,77 @@ export default class BaseMiner {
         await this.startJob()
     }
 
+    private async agreeHandler(event: NewMessageEvent) {
+        if (!(event.message.replyMarkup instanceof Api.ReplyInlineMarkup)) {
+            return
+        }
+
+        const termsButton = this.getButton(event, "Terms of Service")
+        const privacyButton = this.getButton(event, "Privacy Policy")
+        const agreeButton = this.getButton(event, "I agree")
+
+        if (
+            !(termsButton instanceof Api.KeyboardButtonUrl) ||
+            !(privacyButton instanceof Api.KeyboardButtonUrl)
+        ) {
+            this.logger.error(
+                "Terms or privacy buttons without url, can't agree"
+            )
+            return
+        }
+
+        if (!(agreeButton instanceof Api.KeyboardButtonCallback)) {
+            this.logger.error("Have no callback agree button, can't agree")
+            return
+        }
+
+        const termsUrl = termsButton.url
+        const privacyUrl = privacyButton.url
+        await FlareSolver.get(termsUrl)
+        await FlareSolver.get(privacyUrl)
+
+        await this.clickButton(event.message.id, agreeButton)
+        await this.startJob()
+    }
+
     async startMining() {
         Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
         const chats = [this.ENTITY]
+
+        this.client.addEventHandler(
+            (event) => this.agreeHandler(event),
+            new NewMessage({ chats, pattern: AGREE_PATTERN })
+        )
+
+        this.client.addEventHandler(
+            () => this.switchHandler(),
+            new NewMessage({ chats, pattern: NO_ADS_PATTERS })
+        )
+
+        this.client.addEventHandler(
+            (event) => this.skipHandler(event),
+            new NewMessage({ chats, pattern: CANNOT_PATTERN })
+        )
+
+        this.client.addEventHandler(
+            (event) => this.noValidHandler(event),
+            new NewMessage({ chats, pattern: NO_VALID_PATTERN })
+        )
+
+        this.client.addEventHandler(
+            (event) => this.earnedHandler(event),
+            new NewMessage({ chats, pattern: EARNED_PATTERN })
+        )
+
+        this.client.addEventHandler(
+            (event) => this.balanceHandler(event),
+            new NewMessage({ chats, pattern: BALANCE_PATTERN })
+        )
+
+        this.client.addEventHandler(
+            () => this.withdrawHandler(),
+            new NewMessage({ chats, pattern: WITHDRAW_PATTERN })
+        )
 
         this.client.addEventHandler(
             (event) => this.mainHandler(event),
