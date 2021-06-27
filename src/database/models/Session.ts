@@ -1,8 +1,26 @@
-import { Model, DataTypes } from "sequelize"
+import { Model, DataTypes, Optional } from "sequelize"
 import db from "../index"
 import { DBTry } from "../../utils/database"
 
-class Session extends Model {
+interface SessionAttributes {
+    id: number
+    phone: string
+    apiId: string
+    apiHash: string
+    token: string
+}
+type SessionCreationAttributes = Optional<SessionAttributes, "id">
+
+class Session
+    extends Model<SessionAttributes, SessionCreationAttributes>
+    implements SessionAttributes
+{
+    id!: number
+    phone!: string
+    apiId!: string
+    apiHash!: string
+    token!: string
+
     @DBTry("Can't get sessions")
     static async getSession() {
         return Session.findAll()

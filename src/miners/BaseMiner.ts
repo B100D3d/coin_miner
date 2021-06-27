@@ -5,11 +5,14 @@ import moment from "moment"
 import { TelegramClient, Api } from "telegram"
 import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
-import { getFirstDigits, random, timeout } from "../utils"
+import { serializeError } from "serialize-error"
+import { getFirstDigits, random, stringify, timeout } from "../utils"
 import MinerLogger from "../utils/miner_logger"
 import Logger from "../utils/logger"
+import TelegramLogger from "../utils/telegram_logger"
 import FlareSolver from "../services/FlareSolver"
 import Queue from "../utils/queue"
+import JoinedChannels from "../database/models/JoinedChannels"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 
@@ -29,7 +32,7 @@ const FIVE_MINUTES = 1000 * 60 * 5
 const BALANCE_GETTER = "💰 Balance"
 const WITHDRAW_QUERY = "💵 Withdraw"
 
-const MAX_CHANNELS_PER_HOUR = 10
+const MAX_CHANNELS_PER_HOUR = 30
 const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
 
 interface MinerProps {
@@ -51,7 +54,6 @@ export default class BaseMiner {
 
     currentJob = JOBS[0]
     needCheckBalance = false
-    joinedChannels = 0
     balance = 0
     earned = 0
 
@@ -138,17 +140,29 @@ export default class BaseMiner {
         await this.startJob()
     }
 
-    private async trySkip(func, event) {
+    private async catchFlood(func: CallableFunction) {
         try {
             await func()
         } catch (e) {
             if (e instanceof FloodWaitError) {
                 this.logger.warning(`Waiting flood wait error...${e}`)
+                TelegramLogger.error(
+                    `Flood error on ${this.phone} | ${
+                        this.COIN_NAME
+                    }.\n${stringify(serializeError(e))}`
+                )
                 await this.sleep(e.seconds)
-                this.trySkip(func, event)
-                return
+                await this.catchFlood(func)
+            } else {
+                throw e
             }
+        }
+    }
 
+    private async trySkip(func: CallableFunction, event: NewMessageEvent) {
+        try {
+            await this.catchFlood(func)
+        } catch (e) {
             this.logger.error(e)
             await this.skipTask(event)
         }
@@ -189,22 +203,14 @@ export default class BaseMiner {
 
         const twelveHoursAgo = moment().subtract(12, "hours").toDate()
         const filteredChannels = channels.filter(
-            (channel) => new Date(channel.date) >= twelveHoursAgo
+            (channel) => new Date(channel.date) < twelveHoursAgo
         )
 
         const leave = async (channel: Api.TypeEntityLike) => {
             await this.client.invoke(new Api.channels.LeaveChannel({ channel }))
         }
         for (const channel of filteredChannels) {
-            try {
-                await leave(channel)
-            } catch (e) {
-                if (e instanceof FloodWaitError) {
-                    this.logger.warning("Flood error")
-                    await this.sleep(e.seconds)
-                    await leave(channel)
-                }
-            }
+            await this.catchFlood(() => leave(channel))
         }
         await this.sleep(2)
     }
@@ -220,7 +226,8 @@ export default class BaseMiner {
         const job = Symbol(channel)
         await this.channelsQueue.wait(job)
 
-        if (this.joinedChannels >= MAX_CHANNELS_PER_HOUR) {
+        const joinedChannels = await JoinedChannels.getJoinedCount(this.phone)
+        if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
             await this.switchJob()
             return
         }
@@ -228,11 +235,11 @@ export default class BaseMiner {
         const join = async () => {
             this.logger.log(`Join channel ${channel}`)
             try {
-                await this.joinChannel(channel)
-                this.joinedChannels += 1
-                if (this.joinedChannels === MAX_CHANNELS_PER_HOUR - 1) {
-                    setTimeout(() => (this.joinedChannels = 0), ONE_HOUR)
-                }
+                await this.catchFlood(() => this.joinChannel(channel))
+                await JoinedChannels.setJoinedCount(
+                    this.phone,
+                    joinedChannels + 1
+                )
                 const joinedButton = this.getButton(event, "Joined")
                 if (joinedButton instanceof Api.KeyboardButtonCallback) {
                     await this.sleep(random(40, 50))
@@ -242,14 +249,9 @@ export default class BaseMiner {
                     await this.skipTask(event)
                 }
             } catch (e) {
-                if (e instanceof FloodWaitError) {
-                    this.logger.warning("Waiting flood wait error...")
-                    await this.sleep(e.seconds)
-                    await join()
-                } else {
-                    await this.leaveChannels()
-                    await join()
-                }
+                this.logger.error(`Join channel ${channel} error: ${e}`)
+                await this.leaveChannels()
+                await join()
             }
         }
         await join()
