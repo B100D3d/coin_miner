@@ -1,4 +1,4 @@
-import { Model, DataTypes, Optional } from "sequelize"
+import Sequelize, { Model, DataTypes, Transaction } from "sequelize"
 import moment from "moment"
 import db from "../index"
 import { DBTry } from "../../utils/database"
@@ -9,8 +9,12 @@ interface JoinedChannelsAttributes {
     lastJoinedDate: Date
 }
 
+interface JoinedChannelsCreationAttributes {
+    phone: string
+}
+
 class JoinedChannels
-    extends Model<JoinedChannelsAttributes, JoinedChannelsAttributes>
+    extends Model<JoinedChannelsAttributes, JoinedChannelsCreationAttributes>
     implements JoinedChannelsAttributes
 {
     phone!: string
@@ -35,11 +39,16 @@ class JoinedChannels
         return count
     }
 
-    @DBTry("Can't set joined count")
-    static async setJoinedCount(phone: string, joinedCount: number) {
+    @DBTry("Can't increment joined count")
+    static async incrementJoinedCount(phone: string, transaction: Transaction) {
+        const where = { phone }
+        await JoinedChannels.increment(
+            { joinedCount: 1 },
+            { where, transaction }
+        )
         await JoinedChannels.update(
-            { joinedCount, lastJoinedDate: moment().toDate() },
-            { where: { phone } }
+            { lastJoinedDate: moment().toDate() },
+            { where, transaction }
         )
     }
 }
@@ -59,6 +68,7 @@ JoinedChannels.init(
         lastJoinedDate: {
             type: DataTypes.DATE,
             allowNull: false,
+            defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
         },
     },
     {

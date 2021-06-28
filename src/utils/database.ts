@@ -2,7 +2,7 @@ import Logger from "./logger"
 
 export function DBTry(message: string) {
     return function (target, property, descriptor) {
-        const originalMethod = target.descriptor.value
+        const originalMethod = descriptor.value
 
         descriptor.value = async function (...args) {
             try {

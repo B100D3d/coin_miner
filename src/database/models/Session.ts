@@ -1,6 +1,8 @@
-import { Model, DataTypes, Optional } from "sequelize"
+import { Model, DataTypes, Optional, Transaction } from "sequelize"
 import db from "../index"
 import { DBTry } from "../../utils/database"
+import Statistics from "./Statistics"
+import JoinedChannels from "./JoinedChannels"
 
 interface SessionAttributes {
     id: number
@@ -22,8 +24,19 @@ class Session
     token!: string
 
     @DBTry("Can't get sessions")
-    static async getSession() {
+    static async getSessions() {
         return Session.findAll()
+    }
+
+    @DBTry("Can't create session")
+    static async createSession(
+        payload: SessionCreationAttributes,
+        transaction: Transaction
+    ) {
+        const session = await Session.create(payload, { transaction })
+        await Statistics.create({ phone: payload.phone }, { transaction })
+        await JoinedChannels.create({ phone: payload.phone }, { transaction })
+        return session
     }
 }
 

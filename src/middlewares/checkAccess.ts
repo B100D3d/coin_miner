@@ -1,12 +1,13 @@
-import { RequestHandler, Send } from "express"
+import { RequestHandler } from "express"
 
 export const checkAccess: RequestHandler = (req, res, next): void => {
-    const token = req.cookies["X-Refresh-Token"]
+    const password = req.cookies["X-Refresh-Token"]
 
-    if (!token) {
-        res.status(401).json({
-            error: "No cookie",
+    if (password !== process.env.SERVER_PASSWORD) {
+        res.status(403).json({
+            error: "Unauthorized",
         })
+        return
     }
 
     next()

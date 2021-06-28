@@ -1,5 +1,6 @@
 import moment from "moment"
 import chalk from "chalk"
+import { notifyNewMinerLog } from "../websocket"
 
 interface MinerLoggerSettings {
     phone: string
@@ -7,13 +8,18 @@ interface MinerLoggerSettings {
 }
 
 type LogType = "info" | "warning" | "error"
-interface LogItem {
+export interface LogItem {
+    id: number
     type: LogType
     message: string
     date: Date
 }
 
+const MAX_LOGS_COUNT = 100000
 const time = () => moment().format("hh:mm:ss")
+const getLogId = (logs: Array<LogItem>) => {
+    return logs.length ? logs[logs.length - 1].id + 1 : 0
+}
 
 class MinerLogger {
     private readonly phone
@@ -33,11 +39,17 @@ class MinerLogger {
             this.phone
         }) ${msg}`
         console.log(message)
-        MinerLogger.logsList.push({
+        const logItem: LogItem = {
+            id: getLogId(MinerLogger.logsList),
             type,
             message,
             date: new Date(),
-        })
+        }
+        if (MinerLogger.logsList.length === MAX_LOGS_COUNT) {
+            MinerLogger.logsList.shift()
+        }
+        MinerLogger.logsList.push(logItem)
+        notifyNewMinerLog(logItem)
     }
 
     error(msg: string) {

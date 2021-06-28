@@ -32,6 +32,7 @@ module.exports = {
         "no-restricted-syntax": "off",
         "no-await-in-loop": "off",
         "consistent-return": "off",
+        "arrow-body-style": "off",
     },
     settings: {
         "import/resolver": {

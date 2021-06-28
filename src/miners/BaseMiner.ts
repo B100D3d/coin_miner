@@ -7,14 +7,18 @@ import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
 import { serializeError } from "serialize-error"
 import { getFirstDigits, random, stringify, timeout } from "../utils"
+import { notifyMinerUpdates } from "../websocket"
+import db from "../database"
 import MinerLogger from "../utils/miner_logger"
 import Logger from "../utils/logger"
 import TelegramLogger from "../utils/telegram_logger"
 import FlareSolver from "../services/FlareSolver"
 import Queue from "../utils/queue"
 import JoinedChannels from "../database/models/JoinedChannels"
+import Statistics from "../database/models/Statistics"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
+type State = "working" | "sleep"
 
 const START_REFERRAL_CODE = process.env.START_REFERRAL_CODE
 
@@ -56,6 +60,11 @@ export default class BaseMiner {
     needCheckBalance = false
     balance = 0
     earned = 0
+    completedTasks = 0
+    skippedTasks = 0
+
+    state: State = "working"
+    startedAt = null
 
     constructor({ client, phone, channelsQueue }: MinerProps) {
         this.client = client
@@ -129,7 +138,9 @@ export default class BaseMiner {
             }
 
             this.logger.log(chalk.magenta("All jobs completed. Waiting now..."))
+            this.state = "sleep"
             await this.sleep(120)
+            this.state = "working"
             await this.startJob()
             return
         }
@@ -159,12 +170,20 @@ export default class BaseMiner {
         }
     }
 
+    /**
+     * executes function inside try/catch block and skip task on error
+     * @param func
+     * @param event
+     * @returns {boolean} true if function completed and false on error
+     */
     private async trySkip(func: CallableFunction, event: NewMessageEvent) {
         try {
             await this.catchFlood(func)
+            return true
         } catch (e) {
             this.logger.error(e)
             await this.skipTask(event)
+            return false
         }
     }
 
@@ -236,10 +255,9 @@ export default class BaseMiner {
             this.logger.log(`Join channel ${channel}`)
             try {
                 await this.catchFlood(() => this.joinChannel(channel))
-                await JoinedChannels.setJoinedCount(
-                    this.phone,
-                    joinedChannels + 1
-                )
+                await db.transaction(async (t) => {
+                    await JoinedChannels.incrementJoinedCount(this.phone, t)
+                })
                 const joinedButton = this.getButton(event, "Joined")
                 if (joinedButton instanceof Api.KeyboardButtonCallback) {
                     await this.sleep(random(40, 50))
@@ -343,7 +361,17 @@ export default class BaseMiner {
             )
         )
         await this.sleep(2)
-        await this.trySkip(() => handler(event, url), event)
+        const completed = await this.trySkip(() => handler(event, url), event)
+        await db.transaction(async (t) => {
+            if (completed) {
+                this.completedTasks += 1
+                await Statistics.incrementCompletedTasks(this.phone, t)
+            } else {
+                this.skippedTasks += 1
+                await Statistics.incrementSkippedTasks(this.phone, t)
+            }
+        })
+        notifyMinerUpdates(this)
     }
 
     private async switchHandler() {
@@ -358,6 +386,10 @@ export default class BaseMiner {
             if (!earned) return
             this.earned += earned
             this.balance += earned
+            await db.transaction(async (t) => {
+                await Statistics.incrementEarnedAmount(this.phone, earned, t)
+            })
+            notifyMinerUpdates(this)
         } catch (e) {
             this.logger.error(`Earned Error: ${e}`)
         }
@@ -376,6 +408,7 @@ export default class BaseMiner {
                 await this.sleep(2)
                 await this.sendMessage(WITHDRAW_QUERY)
             }
+            notifyMinerUpdates(this)
         } catch (e) {
             this.logger.error(`Balance Error: ${e}`)
         }
@@ -432,6 +465,7 @@ export default class BaseMiner {
 
     async startMining() {
         Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
+        this.startedAt = new Date()
         const chats = [this.ENTITY]
 
         this.client.addEventHandler(

@@ -1,5 +1,6 @@
 import { Response } from "express"
 import { Transaction } from "sequelize"
+import { serializeError } from "serialize-error"
 import Logger from "./logger"
 
 export const serverError = async (
@@ -10,7 +11,8 @@ export const serverError = async (
     Logger.error("Server error", e)
     await transaction?.rollback()
     res.status(500).json({
-        error: "Server error",
+        message: "Server error",
+        error: serializeError(e),
     })
 }
 
