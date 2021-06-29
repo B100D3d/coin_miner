@@ -19,16 +19,16 @@ export const serverError = async (
 export const error = async (
     res: Response,
     status: number,
-    err: string,
+    message: string,
     transaction?: Transaction
 ) => {
     Logger.error("Response error: ", {
         status,
-        err,
+        message,
         baseUrl: res.req.baseUrl,
     })
     await transaction?.rollback()
     return res.status(status).json({
-        err,
+        message,
     })
 }

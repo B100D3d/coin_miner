@@ -24,9 +24,11 @@ class JoinedChannels
     @DBTry("Can't get joined count")
     static async getJoinedCount(phone: string) {
         const where = { phone }
-        const account = await JoinedChannels.findOne({
-            where,
-        })
+        const account = (
+            await JoinedChannels.findOne({
+                where,
+            })
+        )?.toJSON() as JoinedChannelsAttributes
         if (!account) return 0
         let count = account.joinedCount
         if (account.lastJoinedDate < moment().subtract(1, "hour").toDate()) {
@@ -42,12 +44,11 @@ class JoinedChannels
     @DBTry("Can't increment joined count")
     static async incrementJoinedCount(phone: string, transaction: Transaction) {
         const where = { phone }
-        await JoinedChannels.increment(
-            { joinedCount: 1 },
-            { where, transaction }
-        )
         await JoinedChannels.update(
-            { lastJoinedDate: moment().toDate() },
+            {
+                joinedCount: Sequelize.literal("joined_count + 1") as any,
+                lastJoinedDate: moment().toDate(),
+            },
             { where, transaction }
         )
     }

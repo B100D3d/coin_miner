@@ -1,6 +1,8 @@
 export const PROD = process.env.PRODUCTION === "true"
 export const PORT = process.env.PORT
 
-export const origin = PROD
-    ? ["https://miner.devourer.ru"]
-    : ["http://localhost:8080"]
+export const origin = [
+    "https://miner.devourer.ru",
+    "https://localhost:8080",
+    "http://localhost:8080",
+]

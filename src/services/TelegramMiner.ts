@@ -1,12 +1,15 @@
 import { TelegramClient } from "telegram"
-import Session from "../database/models/Session"
+import { SessionAttributes } from "../database/models/Session"
 import { getTelegramClient, startTelegramClient } from "./TelegramClient"
 import MinersState from "./MinersState"
 import MinerBuilder from "../miners/MinerBuilder"
 
 export default class TelegramMiner {
-    static async launch(sessions: Session | Array<Session>) {
+    static async launch(
+        sessions: SessionAttributes | Array<SessionAttributes>
+    ) {
         if (!Array.isArray(sessions)) sessions = [sessions]
+        if (!sessions.length) return
 
         const clients = new Map<string, TelegramClient>()
         for (const session of sessions) {

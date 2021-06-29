@@ -22,8 +22,8 @@ const getLogId = (logs: Array<LogItem>) => {
 }
 
 class MinerLogger {
-    private readonly phone
-    private readonly name
+    private readonly phone: string
+    private readonly name: string
     constructor({ phone, coinName }: MinerLoggerSettings) {
         this.phone = phone
         this.name = coinName

@@ -1,19 +1,18 @@
 import "./init.ts"
 import express from "express"
 import http from "http"
-import { Api, TelegramClient } from "telegram"
 import cors from "cors"
-import input from "input"
 import { Logger as TelegramLogger } from "telegram/extensions"
 import bodyParser from "body-parser"
-import moment from "moment"
-import { StringSession } from "telegram/sessions"
 import cookieParser from "cookie-parser"
 import apiRouter from "./routes/api"
 import db from "./database"
 import { PORT, origin } from "./config"
 import Logger from "./utils/logger"
 import { createWebsocketServer } from "./websocket"
+import Session, { SessionAttributes } from "./database/models/Session"
+import TelegramMiner from "./services/TelegramMiner"
+import FlareSolver from "./services/FlareSolver"
 
 const app = express()
 
@@ -45,25 +44,10 @@ server.listen(PORT, async () => {
 
     TelegramLogger.setLevel("error")
 
-    const account = {
-        phone: "89286668739",
-        apiId: 1054053,
-        apiHash: "66ff7a067bb13c9b2319de56103249c0",
-    }
+    await FlareSolver.createSession()
 
-    // const client = new TelegramClient(
-    //     new StringSession(
-    //         "1AQAOMTQ5LjE1NC4xNjcuNTEAUDE0E3ULpXV34JZ27eRHMiWU12gwS3ojTLIar3Xnle41SwOUoW7MKjZzFSj+AORLFHJkfVu/yUGv/VLyt9mh4wRVWgRHaN65nort/d7iQfQXXrlOyjaa3iXjpkk9v/doIAWq12/79P7tp5doGCCa8xgLLvTHfunrPkMiychGvWHh1/pth3EQhZkTbc+PfdOYrZ4rBL7P0jQKtMD77y2NgroH+r8swwktXDVIaSmRGpynO+mfduDBTLBlxPrCCp/MPNS11tZycqysSGagBIu76kUl+icElhrb3MInM/dsbB2ZWLMJSywn+CNPa2460c0hX+iTP+8f4qBxEQKqiLeV40c="
-    //     ),
-    //     account.apiId,
-    //     account.apiHash,
-    //     { connectionRetries: 5 }
-    // )
-    //
-    // await client.start({
-    //     phoneNumber: account.phone,
-    //     phoneCode: async () => input.text("Phone code: "),
-    //     password: async () => input.text("Password: "),
-    //     onError: Logger.error,
-    // })
+    const sessions = await Session.getSessions()
+    await TelegramMiner.launch(
+        sessions.map((s) => s.toJSON() as SessionAttributes)
+    )
 })

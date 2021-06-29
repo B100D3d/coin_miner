@@ -2,8 +2,8 @@ import { RequestHandler } from "express"
 import { error, serverError } from "../utils/error"
 import TelegramApiReg from "../services/TelegramApiReg"
 import db from "../database"
-import Session from "../database/models/Session"
-import Statistics from "../database/models/Statistics"
+import Session, { SessionAttributes } from "../database/models/Session"
+import Statistics, { StatisticsAttributes } from "../database/models/Statistics"
 import TelegramMiner from "../services/TelegramMiner"
 import MinersState from "../services/MinersState"
 import { parseAccount, parseMiner } from "../utils/miner"
@@ -41,22 +41,33 @@ export const addBot: RequestHandler = async (req, res) => {
     try {
         const { phone, apiId, apiHash, token } = req.body
 
-        await db.transaction(async (t) => {
+        const existedSession = await Session.getSession(phone)
+
+        if (existedSession) {
+            return error(res, 400, "Session for this number already exists")
+        }
+
+        const account = await db.transaction(async (t) => {
             const session = await Session.createSession(
                 { phone, apiId, apiHash, token },
                 t
             )
             const statistics = await Statistics.getAccountStatistics(phone, t)
 
-            await TelegramMiner.launch(session)
+            await TelegramMiner.launch(session.toJSON() as SessionAttributes)
 
             const bots = MinersState.bots
             const miners = bots.get(phone)
             const parsedMiners = miners.map(parseMiner)
 
-            const account = parseAccount(phone, parsedMiners, statistics)
-            res.status(200).json({ account })
+            return parseAccount(
+                phone,
+                parsedMiners,
+                statistics.toJSON() as StatisticsAttributes
+            )
         })
+
+        res.status(200).json({ account })
     } catch (e) {
         await serverError(res, e)
     }

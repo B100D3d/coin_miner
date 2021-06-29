@@ -1,5 +1,6 @@
 import axios from "axios"
 import crypto from "crypto"
+import HttpsProxyAgent from "https-proxy-agent"
 import { parse as parseHTML } from "node-html-parser"
 import { getProxy } from "../utils/proxy"
 
@@ -8,7 +9,9 @@ interface TelegramApi {
     apiHash: string
 }
 
-const TGClient = axios.create({ baseURL: "https://my.telegram.org" })
+const TGClient = axios.create({
+    baseURL: "https://my.telegram.org",
+})
 
 export default class TelegramApiReg {
     /**
@@ -24,7 +27,7 @@ export default class TelegramApiReg {
                     phone,
                 },
                 withCredentials: true,
-                proxy,
+                httpsAgent: new (HttpsProxyAgent as any)(proxy),
             })
             return res.data.random_hash
         } catch (e) {
@@ -54,7 +57,7 @@ export default class TelegramApiReg {
                 password: code,
             },
             withCredentials: true,
-            proxy,
+            httpsAgent: new (HttpsProxyAgent as any)(proxy),
         }
         const loginRes = await TGClient.get(`/auth/login`, loginConfig)
         return loginRes.headers["set-cookie"]
@@ -73,7 +76,7 @@ export default class TelegramApiReg {
         const apiListRes = await TGClient.get("/apps", {
             headers: { Cookie: cookies },
             withCredentials: true,
-            proxy,
+            httpsAgent: new (HttpsProxyAgent as any)(proxy),
         })
         const apiListHTML = parseHTML(apiListRes.data)
         const form = apiListHTML.querySelector("#app_edit_form")
@@ -123,7 +126,7 @@ export default class TelegramApiReg {
                     Cookie: cookies,
                 },
                 withCredentials: true,
-                proxy,
+                httpsAgent: new (HttpsProxyAgent as any)(proxy),
             }
             await TGClient.get("/create", createAppConfig)
             return this.getApi(cookies)

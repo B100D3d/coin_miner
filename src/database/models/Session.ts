@@ -4,10 +4,10 @@ import { DBTry } from "../../utils/database"
 import Statistics from "./Statistics"
 import JoinedChannels from "./JoinedChannels"
 
-interface SessionAttributes {
+export interface SessionAttributes {
     id: number
     phone: string
-    apiId: string
+    apiId: string | number
     apiHash: string
     token: string
 }
@@ -19,13 +19,18 @@ class Session
 {
     id!: number
     phone!: string
-    apiId!: string
+    apiId!: string | number
     apiHash!: string
     token!: string
 
     @DBTry("Can't get sessions")
     static async getSessions() {
         return Session.findAll()
+    }
+
+    @DBTry("Can't get session")
+    static async getSession(phone: string) {
+        return Session.findOne({ where: { phone } })
     }
 
     @DBTry("Can't create session")

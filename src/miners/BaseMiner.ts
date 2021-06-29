@@ -39,10 +39,11 @@ const WITHDRAW_QUERY = "💵 Withdraw"
 const MAX_CHANNELS_PER_HOUR = 30
 const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
 
-interface MinerProps {
+export interface MinerProps {
     client: TelegramClient
     phone: string
     channelsQueue: Queue
+    logger: MinerLogger
 }
 
 export default class BaseMiner {
@@ -66,10 +67,10 @@ export default class BaseMiner {
     state: State = "working"
     startedAt = null
 
-    constructor({ client, phone, channelsQueue }: MinerProps) {
+    constructor({ client, phone, channelsQueue, logger }: MinerProps) {
         this.client = client
         this.phone = phone
-        this.logger = new MinerLogger({ phone, coinName: this.COIN_NAME })
+        this.logger = logger
         this.channelsQueue = channelsQueue
     }
 
@@ -98,7 +99,7 @@ export default class BaseMiner {
     }
 
     private getButton(event: NewMessageEvent, pattern: string) {
-        const markup = event.message.replyMarkup as Api.ReplyKeyboardMarkup
+        const markup = event.message.replyMarkup as Api.ReplyInlineMarkup
         const rows = markup.rows
         const buttons = rows.flatMap((row) => row.buttons)
         return buttons.find((b) => b.text.includes(pattern))
@@ -332,10 +333,10 @@ export default class BaseMiner {
     }
 
     private async mainHandler(event: NewMessageEvent) {
-        if (event.originalUpdate instanceof Api.UpdateNewMessage) return
-        if (event.message.replyMarkup instanceof Api.ReplyInlineMarkup) return
+        if (!(event.message.replyMarkup instanceof Api.ReplyInlineMarkup))
+            return
 
-        const markup = event.message.replyMarkup as Api.ReplyKeyboardMarkup
+        const markup = event.message.replyMarkup
         const buttons = markup.rows.flatMap((row) => row.buttons)
         const firstButton = buttons[0]
 
@@ -351,7 +352,7 @@ export default class BaseMiner {
             group: this.channelsHandler.bind(this),
         }
 
-        const type = Object.keys(handlers).find(([t]) => text.includes(t))
+        const type = Object.keys(handlers).find((t) => text.includes(t))
         if (!type) return
         const handler = handlers[type]
 
@@ -463,49 +464,39 @@ export default class BaseMiner {
         await this.startJob()
     }
 
+    private filterEvent(event: NewMessageEvent) {
+        if (!(event.originalUpdate instanceof Api.UpdateNewMessage)) return
+        if ((event.message.sender as any).username !== this.ENTITY) return
+
+        const text = event.message.rawText
+
+        const handlers = new Map<RegExp, CallableFunction>([
+            [AGREE_PATTERN, (e) => this.agreeHandler(e)],
+            [NO_ADS_PATTERS, () => this.switchHandler()],
+            [CANNOT_PATTERN, (e) => this.skipHandler(e)],
+            [NO_VALID_PATTERN, (e) => this.noValidHandler(e)],
+            [EARNED_PATTERN, (e) => this.earnedHandler(e)],
+            [BALANCE_PATTERN, (e) => this.balanceHandler(e)],
+            [WITHDRAW_PATTERN, () => this.withdrawHandler()],
+        ])
+
+        for (const [pattern, handler] of handlers.entries()) {
+            if (pattern.test(text)) {
+                handler(event)
+                return
+            }
+        }
+        /* in default case */
+        this.mainHandler(event)
+    }
+
     async startMining() {
         Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
         this.startedAt = new Date()
-        const chats = [this.ENTITY]
 
         this.client.addEventHandler(
-            (event) => this.agreeHandler(event),
-            new NewMessage({ chats, pattern: AGREE_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            () => this.switchHandler(),
-            new NewMessage({ chats, pattern: NO_ADS_PATTERS })
-        )
-
-        this.client.addEventHandler(
-            (event) => this.skipHandler(event),
-            new NewMessage({ chats, pattern: CANNOT_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            (event) => this.noValidHandler(event),
-            new NewMessage({ chats, pattern: NO_VALID_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            (event) => this.earnedHandler(event),
-            new NewMessage({ chats, pattern: EARNED_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            (event) => this.balanceHandler(event),
-            new NewMessage({ chats, pattern: BALANCE_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            () => this.withdrawHandler(),
-            new NewMessage({ chats, pattern: WITHDRAW_PATTERN })
-        )
-
-        this.client.addEventHandler(
-            (event) => this.mainHandler(event),
-            new NewMessage({ chats })
+            (event) => this.filterEvent(event),
+            new NewMessage({})
         )
 
         this.setBalanceTimeout()

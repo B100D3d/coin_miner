@@ -1,6 +1,6 @@
 import { RequestHandler } from "express"
 import { serverError } from "../utils/error"
-import Statistics from "../database/models/Statistics"
+import Statistics, { StatisticsAttributes } from "../database/models/Statistics"
 import { parseAccount, parseMiner } from "../utils/miner"
 import MinersState from "../services/MinersState"
 import MinerLogger from "../utils/miner_logger"
@@ -9,7 +9,9 @@ export const getMiners: RequestHandler = async (req, res) => {
     try {
         const bots = MinersState.bots
 
-        const statistics = await Statistics.getFullStatistics()
+        const statistics = (await Statistics.getFullStatistics()).map(
+            (s) => s.toJSON() as StatisticsAttributes
+        )
 
         const accounts = Array.from(bots.entries()).map(([phone, miners]) => {
             const accountStatistics = statistics.find((s) => s.phone === phone)

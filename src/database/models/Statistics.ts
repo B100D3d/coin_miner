@@ -1,8 +1,8 @@
-import { Model, DataTypes, Transaction } from "sequelize"
+import Sequelize, { Model, DataTypes, Transaction } from "sequelize"
 import db from "../index"
 import { DBTry } from "../../utils/database"
 
-interface StatisticsAttributes {
+export interface StatisticsAttributes {
     phone: string
     earned: number
     completedTasks: number
@@ -44,8 +44,8 @@ class Statistics
         phone: string,
         transaction: Transaction
     ) {
-        await Statistics.increment(
-            { completedTasks: 1 },
+        await Statistics.update(
+            { completedTasks: Sequelize.literal("completed_tasks + 1") as any },
             { where: { phone }, transaction }
         )
     }
@@ -55,8 +55,8 @@ class Statistics
         phone: string,
         transaction: Transaction
     ) {
-        await Statistics.increment(
-            { skippedTasks: 1 },
+        await Statistics.update(
+            { skippedTasks: Sequelize.literal("skipped_tasks + 1") as any },
             { where: { phone }, transaction }
         )
     }
@@ -67,8 +67,8 @@ class Statistics
         amount: number,
         transaction: Transaction
     ) {
-        await Statistics.increment(
-            { earned: amount },
+        await Statistics.update(
+            { earned: Sequelize.literal(`earned + ${amount}`) as any },
             { where: { phone }, transaction }
         )
     }
@@ -82,7 +82,7 @@ Statistics.init(
             primaryKey: true,
         },
         earned: {
-            type: DataTypes.INTEGER,
+            type: DataTypes.FLOAT,
             allowNull: false,
             defaultValue: 0,
         },

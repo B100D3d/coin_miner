@@ -26,10 +26,9 @@ export const auth: RequestHandler = (req, res) => {
     const password = req.cookies["X-Refresh-Token"]
 
     if (password !== process.env.SERVER_PASSWORD) {
-        res.clearCookie("X-Refresh-Token").status(403).json({
+        return res.clearCookie("X-Refresh-Token").status(403).json({
             message: "Unauthorized",
         })
-        return
     }
 
     res.cookie("X-Refresh-Token", password, cookieOptions).status(200).json({

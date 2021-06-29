@@ -1,5 +1,5 @@
 import BaseMiner from "../miners/BaseMiner"
-import Statistics from "../database/models/Statistics"
+import { StatisticsAttributes } from "../database/models/Statistics"
 
 export const parseMiner = (miner: BaseMiner) => ({
     entity: miner.ENTITY,
@@ -18,7 +18,7 @@ export const parseMiner = (miner: BaseMiner) => ({
 export const parseAccount = (
     phone: string,
     miners: Array<ReturnType<typeof parseMiner>>,
-    accountStatistics?: Statistics
+    accountStatistics?: StatisticsAttributes
 ) => ({
     phone,
     miners,
