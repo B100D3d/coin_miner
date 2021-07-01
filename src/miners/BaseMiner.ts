@@ -2,6 +2,7 @@ import chalk from "chalk"
 import { parse as parseHTML } from "node-html-parser"
 import axios from "axios"
 import moment from "moment"
+import qs from "querystring"
 import { TelegramClient, Api } from "telegram"
 import { NewMessageEvent, NewMessage } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
@@ -16,13 +17,14 @@ import FlareSolver from "../services/FlareSolver"
 import Queue from "../utils/queue"
 import JoinedChannels from "../database/models/JoinedChannels"
 import Statistics from "../database/models/Statistics"
+import { SessionAttributes } from "../database/models/Session"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 type State = "working" | "sleep"
 
 const START_REFERRAL_CODE = process.env.START_REFERRAL_CODE
 
-const NO_ADS_PATTERS = /Sorry, there are no new ads available./g
+const NO_ADS_PATTERN = /Sorry, there are no new ads available./g
 const EARNED_PATTERN = /.*you earned.*/gi
 const CANNOT_PATTERN = /We cannot/g
 const NO_VALID_PATTERN = /Sorry, that task/g
@@ -41,14 +43,14 @@ const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
 
 export interface MinerProps {
     client: TelegramClient
-    phone: string
+    session: SessionAttributes
     channelsQueue: Queue
     logger: MinerLogger
 }
 
 export default class BaseMiner {
     client: TelegramClient
-    phone: string
+    session: SessionAttributes
     logger: MinerLogger
     channelsQueue: Queue
 
@@ -64,19 +66,29 @@ export default class BaseMiner {
     completedTasks = 0
     skippedTasks = 0
 
+    paused = true
     state: State = "working"
     startedAt = null
+    balanceTimeout = null
 
-    constructor({ client, phone, channelsQueue, logger }: MinerProps) {
+    constructor({ client, session, channelsQueue, logger }: MinerProps) {
         this.client = client
-        this.phone = phone
+        this.session = session
         this.logger = logger
         this.channelsQueue = channelsQueue
+
+        this.client.addEventHandler(
+            (event) => this.filterEvent(event),
+            new NewMessage({})
+        )
     }
 
     private setBalanceTimeout() {
-        setTimeout(
-            () => (this.needCheckBalance = !this.needCheckBalance),
+        if (this.balanceTimeout) {
+            clearTimeout(this.balanceTimeout)
+        }
+        this.balanceTimeout = setTimeout(
+            () => (this.needCheckBalance = true),
             random(ONE_HOUR - FIVE_MINUTES, ONE_HOUR + FIVE_MINUTES)
         )
     }
@@ -134,7 +146,7 @@ export default class BaseMiner {
 
             if (this.needCheckBalance) {
                 await this.checkBalance()
-                this.needCheckBalance = !this.needCheckBalance
+                this.needCheckBalance = false
                 this.setBalanceTimeout()
             }
 
@@ -159,7 +171,7 @@ export default class BaseMiner {
             if (e instanceof FloodWaitError) {
                 this.logger.warning(`Waiting flood wait error...${e}`)
                 TelegramLogger.error(
-                    `Flood error on ${this.phone} | ${
+                    `Flood error on ${this.session.phone} | ${
                         this.COIN_NAME
                     }.\n${stringify(serializeError(e))}`
                 )
@@ -246,7 +258,9 @@ export default class BaseMiner {
         const job = Symbol(channel)
         await this.channelsQueue.wait(job)
 
-        const joinedChannels = await JoinedChannels.getJoinedCount(this.phone)
+        const joinedChannels = await JoinedChannels.getJoinedCount(
+            this.session.phone
+        )
         if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
             await this.switchJob()
             return
@@ -257,7 +271,10 @@ export default class BaseMiner {
             try {
                 await this.catchFlood(() => this.joinChannel(channel))
                 await db.transaction(async (t) => {
-                    await JoinedChannels.incrementJoinedCount(this.phone, t)
+                    await JoinedChannels.incrementJoinedCount(
+                        this.session.phone,
+                        t
+                    )
                 })
                 const joinedButton = this.getButton(event, "Joined")
                 if (joinedButton instanceof Api.KeyboardButtonCallback) {
@@ -311,8 +328,8 @@ export default class BaseMiner {
     private async websiteHandler(event: NewMessageEvent, url: string) {
         this.logger.log(`Visit site ${url}`)
 
-        const req = await FlareSolver.get(url)
-        const html = parseHTML(req.response)
+        const { url: reqUrl, userAgent, response } = await FlareSolver.get(url)
+        const html = parseHTML(response)
 
         const bar = html.querySelector("#headbar")
         if (!bar) return
@@ -327,9 +344,27 @@ export default class BaseMiner {
 
         this.logger.log(`Waiting for a headbar timer: ${barTime} seconds...`)
         await this.sleep(barTime)
-        const parsedUrl = new URL(url)
-        const rewardUrl = `${parsedUrl.protocol}://${parsedUrl.hostname}/reward`
-        await axios.post(rewardUrl, { code: barCode, token: barToken })
+        const parsedUrl = new URL(reqUrl)
+        const rewardUrl = `${parsedUrl.origin}/reward`
+        const { data } = await axios.post(
+            rewardUrl,
+            qs.stringify({
+                code: barCode,
+                token: barToken,
+            }),
+            {
+                headers: {
+                    origin: parsedUrl.origin,
+                    referer: reqUrl,
+                    "user-agent": userAgent,
+                    "Content-Type":
+                        "application/x-www-form-urlencoded; charset=UTF-8",
+                },
+            }
+        )
+        if (data.error) {
+            throw new Error(`Reward error: ${data.error}`)
+        }
     }
 
     private async mainHandler(event: NewMessageEvent) {
@@ -366,10 +401,10 @@ export default class BaseMiner {
         await db.transaction(async (t) => {
             if (completed) {
                 this.completedTasks += 1
-                await Statistics.incrementCompletedTasks(this.phone, t)
+                await Statistics.incrementCompletedTasks(this.session.phone, t)
             } else {
                 this.skippedTasks += 1
-                await Statistics.incrementSkippedTasks(this.phone, t)
+                await Statistics.incrementSkippedTasks(this.session.phone, t)
             }
         })
         notifyMinerUpdates(this)
@@ -388,7 +423,12 @@ export default class BaseMiner {
             this.earned += earned
             this.balance += earned
             await db.transaction(async (t) => {
-                await Statistics.incrementEarnedAmount(this.phone, earned, t)
+                await Statistics.incrementEarnedAmount(
+                    this.session.phone,
+                    this.COIN_NAME,
+                    earned,
+                    t
+                )
             })
             notifyMinerUpdates(this)
         } catch (e) {
@@ -419,6 +459,9 @@ export default class BaseMiner {
         this.logger.log(chalk.magentaBright("Withdraw..."))
         await this.sleep(3)
         await this.sendMessage(this.ADDRESS)
+        TelegramLogger.info(
+            `${this.session.phone} ${this.COIN_NAME} has withdrew`
+        )
     }
 
     private async skipHandler(event: NewMessageEvent) {
@@ -464,15 +507,18 @@ export default class BaseMiner {
         await this.startJob()
     }
 
-    private filterEvent(event: NewMessageEvent) {
-        if (!(event.originalUpdate instanceof Api.UpdateNewMessage)) return
-        if ((event.message.sender as any).username !== this.ENTITY) return
+    private async filterEvent(event: NewMessageEvent) {
+        if (this.paused) return
+        let sender = event.message.sender
+        if (!sender) {
+            sender = await event.message.getSender()
+        }
+        if ((sender as any)?.username !== this.ENTITY) return
 
         const text = event.message.rawText
-
         const handlers = new Map<RegExp, CallableFunction>([
             [AGREE_PATTERN, (e) => this.agreeHandler(e)],
-            [NO_ADS_PATTERS, () => this.switchHandler()],
+            [NO_ADS_PATTERN, () => this.switchHandler()],
             [CANNOT_PATTERN, (e) => this.skipHandler(e)],
             [NO_VALID_PATTERN, (e) => this.noValidHandler(e)],
             [EARNED_PATTERN, (e) => this.earnedHandler(e)],
@@ -481,7 +527,8 @@ export default class BaseMiner {
         ])
 
         for (const [pattern, handler] of handlers.entries()) {
-            if (pattern.test(text)) {
+            const match = text.match(pattern)
+            if (match) {
                 handler(event)
                 return
             }
@@ -490,14 +537,15 @@ export default class BaseMiner {
         this.mainHandler(event)
     }
 
+    async stopMining() {
+        this.logger.log("Pause")
+        this.paused = true
+    }
+
     async startMining() {
         Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
+        this.paused = false
         this.startedAt = new Date()
-
-        this.client.addEventHandler(
-            (event) => this.filterEvent(event),
-            new NewMessage({})
-        )
 
         this.setBalanceTimeout()
         await this.startClickBot()

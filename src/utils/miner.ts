@@ -8,11 +8,13 @@ export const parseMiner = (miner: BaseMiner) => ({
     address: miner.ADDRESS,
     currentJob: miner.currentJob,
     state: miner.state,
+    paused: miner.paused,
     completedTasks: miner.completedTasks,
     skippedTasks: miner.skippedTasks,
     balance: miner.balance,
     earned: miner.earned,
     startedAt: miner.startedAt,
+    createdAt: miner.session.createdAt,
 })
 
 export const parseAccount = (
@@ -24,5 +26,9 @@ export const parseAccount = (
     miners,
     allTimeCompletedTasks: accountStatistics?.completedTasks,
     allTimeSkippedTasks: accountStatistics?.skippedTasks,
-    allTimeEarned: accountStatistics?.earned,
+    allTimeEarned: {
+        LTC: accountStatistics.ltcEarned,
+        ZEC: accountStatistics.zecEarned,
+        BCH: accountStatistics.bchEarned,
+    },
 })

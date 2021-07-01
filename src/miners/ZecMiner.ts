@@ -6,7 +6,7 @@ export default class ZecMiner extends BaseMiner {
     constructor(props: Omit<MinerProps, "logger">) {
         const coin = "ZEC"
         const logger = new MinerLogger({
-            phone: props.phone,
+            phone: props.session.phone,
             coinName: chalk.magentaBright(coin),
         })
         super({ ...props, logger })

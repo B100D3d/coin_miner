@@ -1,5 +1,5 @@
 import { RequestHandler } from "express"
-import { serverError } from "../utils/error"
+import { error, serverError } from "../utils/error"
 import Statistics, { StatisticsAttributes } from "../database/models/Statistics"
 import { parseAccount, parseMiner } from "../utils/miner"
 import MinersState from "../services/MinersState"
@@ -30,6 +30,31 @@ export const getLogs: RequestHandler = async (req, res) => {
         const logs = MinerLogger.getLogs()
 
         res.status(200).json({ logs })
+    } catch (e) {
+        await serverError(res, e)
+    }
+}
+
+export const startStopMiners: RequestHandler = async (req, res) => {
+    try {
+        const { phone, start, all } = req.body
+        const miners = all
+            ? Array.from(MinersState.bots.values()).flat()
+            : MinersState.bots.get(phone)
+
+        if (!miners) {
+            return error(res, 400, "Wrong bot")
+        }
+
+        miners.forEach((miner) => {
+            if (start && miner.paused) {
+                miner.startMining()
+            } else if (!start && !miner.paused) {
+                miner.stopMining()
+            }
+        })
+
+        return res.status(200).send()
     } catch (e) {
         await serverError(res, e)
     }

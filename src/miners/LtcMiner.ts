@@ -6,7 +6,7 @@ export default class LtcMiner extends BaseMiner {
     constructor(props: Omit<MinerProps, "logger">) {
         const coin = "LTC"
         const logger = new MinerLogger({
-            phone: props.phone,
+            phone: props.session.phone,
             coinName: chalk.blueBright(coin),
         })
         super({ ...props, logger })

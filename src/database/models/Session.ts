@@ -1,4 +1,4 @@
-import { Model, DataTypes, Optional, Transaction } from "sequelize"
+import Sequelize, { Model, DataTypes, Optional, Transaction } from "sequelize"
 import db from "../index"
 import { DBTry } from "../../utils/database"
 import Statistics from "./Statistics"
@@ -10,8 +10,9 @@ export interface SessionAttributes {
     apiId: string | number
     apiHash: string
     token: string
+    createdAt: Date
 }
-type SessionCreationAttributes = Optional<SessionAttributes, "id">
+type SessionCreationAttributes = Optional<SessionAttributes, "id" | "createdAt">
 
 class Session
     extends Model<SessionAttributes, SessionCreationAttributes>
@@ -22,6 +23,7 @@ class Session
     apiId!: string | number
     apiHash!: string
     token!: string
+    createdAt!: Date
 
     @DBTry("Can't get sessions")
     static async getSessions() {
@@ -68,6 +70,11 @@ Session.init(
         token: {
             type: DataTypes.STRING,
             allowNull: false,
+        },
+        createdAt: {
+            type: DataTypes.DATE,
+            allowNull: false,
+            defaultValue: Sequelize.literal("CURRENT_TIMESTAMP"),
         },
     },
     {

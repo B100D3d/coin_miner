@@ -11,7 +11,7 @@ export default class TelegramMiner {
         if (!Array.isArray(sessions)) sessions = [sessions]
         if (!sessions.length) return
 
-        const clients = new Map<string, TelegramClient>()
+        const clients = new Map<SessionAttributes, TelegramClient>()
         for (const session of sessions) {
             const client = await getTelegramClient({
                 session: session.token,
@@ -19,12 +19,12 @@ export default class TelegramMiner {
                 apiHash: session.apiHash,
             })
             await startTelegramClient(client, session.phone)
-            clients.set(session.phone, client)
+            clients.set(session, client)
         }
 
-        for (const [phone, client] of clients.entries()) {
-            const miners = MinerBuilder.build(client, phone)
-            MinersState.addBot(phone, miners)
+        for (const [session, client] of clients.entries()) {
+            const miners = MinerBuilder.build(client, session)
+            MinersState.addBot(session.phone, miners)
             miners.forEach((miner) => miner.startMining())
         }
     }

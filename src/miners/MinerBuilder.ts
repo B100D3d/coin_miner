@@ -4,18 +4,22 @@ import LtcMiner from "./LtcMiner"
 import BchMiner from "./BchMiner"
 import ZecMiner from "./ZecMiner"
 import BaseMiner from "./BaseMiner"
+import { SessionAttributes } from "../database/models/Session"
 
 export default class MinerBuilder {
     /**
      * returns array of miners
      * @param client {TelegramClient} telegram client
-     * @param phone {string} phone number
+     * @param session {object} account session from database
      */
-    static build(client: TelegramClient, phone: string): Array<BaseMiner> {
+    static build(
+        client: TelegramClient,
+        session: SessionAttributes
+    ): Array<BaseMiner> {
         const channelsQueue = new Queue(1)
-        const ltcMiner = new LtcMiner({ client, phone, channelsQueue })
-        const bchMiner = new BchMiner({ client, phone, channelsQueue })
-        const zecMiner = new ZecMiner({ client, phone, channelsQueue })
+        const ltcMiner = new LtcMiner({ client, session, channelsQueue })
+        const bchMiner = new BchMiner({ client, session, channelsQueue })
+        const zecMiner = new ZecMiner({ client, session, channelsQueue })
 
         return [ltcMiner, bchMiner, zecMiner]
     }

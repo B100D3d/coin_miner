@@ -4,7 +4,9 @@ import { DBTry } from "../../utils/database"
 
 export interface StatisticsAttributes {
     phone: string
-    earned: number
+    ltcEarned: number
+    zecEarned: number
+    bchEarned: number
     completedTasks: number
     skippedTasks: number
 }
@@ -18,7 +20,9 @@ class Statistics
     implements StatisticsAttributes
 {
     phone!: string
-    earned!: number
+    ltcEarned!: number
+    zecEarned!: number
+    bchEarned!: number
     completedTasks!: number
     skippedTasks!: number
 
@@ -64,11 +68,17 @@ class Statistics
     @DBTry("Can't increment account earned amount")
     static async incrementEarnedAmount(
         phone: string,
+        coin: string,
         amount: number,
         transaction: Transaction
     ) {
+        const lowerCoin = coin.toLowerCase()
         await Statistics.update(
-            { earned: Sequelize.literal(`earned + ${amount}`) as any },
+            {
+                [`${lowerCoin}Earned`]: Sequelize.literal(
+                    `${lowerCoin}_earned + ${amount}`
+                ) as any,
+            },
             { where: { phone }, transaction }
         )
     }
@@ -81,7 +91,17 @@ Statistics.init(
             allowNull: false,
             primaryKey: true,
         },
-        earned: {
+        ltcEarned: {
+            type: DataTypes.FLOAT,
+            allowNull: false,
+            defaultValue: 0,
+        },
+        zecEarned: {
+            type: DataTypes.FLOAT,
+            allowNull: false,
+            defaultValue: 0,
+        },
+        bchEarned: {
             type: DataTypes.FLOAT,
             allowNull: false,
             defaultValue: 0,

@@ -6,7 +6,7 @@ export default class BchMiner extends BaseMiner {
     constructor(props: Omit<MinerProps, "logger">) {
         const coin = "BCH"
         const logger = new MinerLogger({
-            phone: props.phone,
+            phone: props.session.phone,
             coinName: chalk.yellowBright(coin),
         })
         super({ ...props, logger })

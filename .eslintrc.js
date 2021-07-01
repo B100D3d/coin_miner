@@ -33,6 +33,7 @@ module.exports = {
         "no-await-in-loop": "off",
         "consistent-return": "off",
         "arrow-body-style": "off",
+        "no-unused-expressions": "off",
     },
     settings: {
         "import/resolver": {

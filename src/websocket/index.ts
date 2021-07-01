@@ -7,40 +7,12 @@ import { LogItem } from "../utils/miner_logger"
 
 export const users = new Set<WebSocket>()
 
-async function handleJoin(user, token) {
-    if (token !== process.env.SERVER_PASSWORD) {
-        user.close()
-        return
-    }
-
-    users.add(user)
-}
-
-function handleClose(user) {
-    users.delete(user)
-}
-
 export function createWebsocketServer(server) {
     const wss = new WebSocket.Server({ server, path: "/api/ws" })
 
     wss.on("connection", (user) => {
-        user.on("message", async (message) => {
-            try {
-                const data = JSON.parse(message as string)
-                switch (data.type) {
-                    case "join":
-                        await handleJoin(user, data.token)
-                        break
-                    default:
-                        Logger.error("Unexpected websocket data type")
-                        break
-                }
-            } catch (e) {
-                Logger.error("Websocket message parse error", e)
-            }
-        })
-
-        user.on("close", () => handleClose(user))
+        users.add(user)
+        user.on("close", () => users.delete(user))
     })
 }
 
@@ -53,7 +25,7 @@ const broadcast = (payload) => {
 export function notifyMinerUpdates(miner: BaseMiner) {
     const message = {
         type: "miner:update",
-        phone: miner.phone,
+        phone: miner.session.phone,
         miner: parseMiner(miner),
     }
     broadcast(message)
