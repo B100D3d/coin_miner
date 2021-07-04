@@ -29,7 +29,9 @@ const EARNED_PATTERN = /.*you earned.*/gi
 const CANNOT_PATTERN = /We cannot/g
 const NO_VALID_PATTERN = /Sorry, that task/g
 const BALANCE_PATTERN = /Available balance/g
-const WITHDRAW_PATTERN = /To withdraw, enter/g
+const WITHDRAW_ADDRESS_PATTERN = /To withdraw, enter/g
+const WITHDRAW_AMOUNT_PATTERN = /Enter the amount to withdraw/g
+const WITHDRAW_CONFIRM_PATTERN = /Are you sure you want to send/g
 const AGREE_PATTERN = /you must agree to our/g
 
 const ONE_HOUR = 1000 * 60 * 60
@@ -37,6 +39,8 @@ const FIVE_MINUTES = 1000 * 60 * 5
 
 const BALANCE_GETTER = "💰 Balance"
 const WITHDRAW_QUERY = "💵 Withdraw"
+const MAX_AMOUNT_WITHDRAW = "💰 Max amount"
+const WITHDRAW_CONFIRM = "✔️ Confirm"
 
 const MAX_CHANNELS_PER_HOUR = 30
 const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
@@ -222,11 +226,15 @@ export default class BaseMiner {
     private async blockBot(entity: string) {
         await this.client.invoke(new Api.contacts.Block({ id: entity }))
         await this.client.invoke(
-            new Api.contacts.DeleteContacts({ id: [entity] })
+            new Api.messages.DeleteHistory({
+                maxId: 0,
+                peer: entity,
+            })
         )
     }
 
     private async leaveChannels() {
+        this.logger.log(chalk.magenta("Leaving channels..."))
         const dialogs = await this.client.getDialogs({})
         const entities = dialogs.map((dialog) => dialog.entity)
         const channels = entities.filter(
@@ -256,42 +264,51 @@ export default class BaseMiner {
         const reqUrl = new URL(req.url)
         const channel = reqUrl.pathname.replace(/\//g, "")
         const job = Symbol(channel)
-        await this.channelsQueue.wait(job)
+        try {
+            await this.channelsQueue.wait(job)
 
-        const joinedChannels = await JoinedChannels.getJoinedCount(
-            this.session.phone
-        )
-        if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
-            await this.switchJob()
-            return
-        }
-
-        const join = async () => {
-            this.logger.log(`Join channel ${channel}`)
-            try {
-                await this.catchFlood(() => this.joinChannel(channel))
-                await db.transaction(async (t) => {
-                    await JoinedChannels.incrementJoinedCount(
-                        this.session.phone,
-                        t
-                    )
-                })
-                const joinedButton = this.getButton(event, "Joined")
-                if (joinedButton instanceof Api.KeyboardButtonCallback) {
-                    await this.sleep(random(40, 50))
-                    await this.clickButton(event.message.id, joinedButton)
-                    this.logger.log(`Channel ${channel} successfully joined`)
-                } else {
-                    await this.skipTask(event)
-                }
-            } catch (e) {
-                this.logger.error(`Join channel ${channel} error: ${e}`)
-                await this.leaveChannels()
-                await join()
+            const joinedChannels = await JoinedChannels.getJoinedCount(
+                this.session.phone
+            )
+            if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
+                return this.switchJob()
             }
+
+            const join = async () => {
+                this.logger.log(`Join channel ${channel}`)
+                try {
+                    await this.catchFlood(() => this.joinChannel(channel))
+                    await db.transaction(async (t) => {
+                        await JoinedChannels.incrementJoinedCount(
+                            this.session.phone,
+                            t
+                        )
+                    })
+                    const joinedButton = this.getButton(event, "Joined")
+                    if (joinedButton instanceof Api.KeyboardButtonCallback) {
+                        await this.sleep(random(40, 50))
+                        await this.clickButton(event.message.id, joinedButton)
+                        this.logger.log(
+                            `Channel ${channel} successfully joined`
+                        )
+                    } else {
+                        await this.skipTask(event)
+                    }
+                } catch (e) {
+                    this.logger.error(`Join channel ${channel} error: ${e}`)
+                    console.log(e.message)
+                    if (e.message === "CHANNELS_TOO_MUCH") {
+                        await this.leaveChannels()
+                        await join()
+                    } else {
+                        await this.skipTask(event)
+                    }
+                }
+            }
+            await join()
+        } finally {
+            this.channelsQueue.end(job)
         }
-        await join()
-        this.channelsQueue.end(job)
     }
 
     private async botsHandler(event: NewMessageEvent, url: string) {
@@ -305,10 +322,11 @@ export default class BaseMiner {
         this.logger.log(`Messaged to bot ${bot}, waiting for answer...`)
         await this.sleep(10)
 
-        const messages = await this.client.getMessages(bot, {
-            fromUser: bot,
-            limit: 2,
-        })
+        const messages = await this.client
+            .getMessages(bot, {
+                fromUser: bot,
+            })
+            .catch(() => [])
 
         if (messages.length === 0) {
             this.logger.error(`Bot ${bot} didn't answer`)
@@ -455,10 +473,22 @@ export default class BaseMiner {
         }
     }
 
-    private async withdrawHandler() {
-        this.logger.log(chalk.magentaBright("Withdraw..."))
+    private async withdrawAddressHandler() {
+        this.logger.log(chalk.magentaBright("Sending address to withdraw..."))
         await this.sleep(3)
         await this.sendMessage(this.ADDRESS)
+    }
+
+    private async withdrawAmountHandler() {
+        this.logger.log(chalk.magentaBright("Sending amount to withdraw..."))
+        await this.sleep(3)
+        await this.sendMessage(MAX_AMOUNT_WITHDRAW)
+    }
+
+    private async withdrawConfirmHandler() {
+        this.logger.log(chalk.magentaBright("Withdraw..."))
+        await this.sleep(3)
+        await this.sendMessage(WITHDRAW_CONFIRM)
         TelegramLogger.info(
             `${this.session.phone} ${this.COIN_NAME} has withdrew`
         )
@@ -523,7 +553,9 @@ export default class BaseMiner {
             [NO_VALID_PATTERN, (e) => this.noValidHandler(e)],
             [EARNED_PATTERN, (e) => this.earnedHandler(e)],
             [BALANCE_PATTERN, (e) => this.balanceHandler(e)],
-            [WITHDRAW_PATTERN, () => this.withdrawHandler()],
+            [WITHDRAW_ADDRESS_PATTERN, () => this.withdrawAddressHandler()],
+            [WITHDRAW_AMOUNT_PATTERN, () => this.withdrawAmountHandler()],
+            [WITHDRAW_CONFIRM_PATTERN, () => this.withdrawConfirmHandler()],
         ])
 
         for (const [pattern, handler] of handlers.entries()) {

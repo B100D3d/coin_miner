@@ -18,11 +18,11 @@ class TelegramLogger {
     }
 
     static info(message: string) {
-        TelegramBot.send(`✏️ INFO:\n----------\n${message}`)
+        TelegramLogger.send(`✏️ INFO:\n----------\n${message}`)
     }
 
     static error(message: string) {
-        TelegramBot.send(`💥 ERROR:\n----------\n${message}`)
+        TelegramLogger.send(`💥 ERROR:\n----------\n${message}`)
     }
 }
 

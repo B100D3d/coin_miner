@@ -1,7 +1,7 @@
 import axios from "axios"
 import Queue from "../utils/queue"
 
-const queue = new Queue(100)
+const queue = new Queue(Number(process.env.FLARE_QUEUE || 100))
 const flareUrl = `${process.env.FLARE_URL}/v1`
 const flareSession = "MinerSession"
 
@@ -15,12 +15,6 @@ interface FlareSolution {
 
 export default class FlareSolver {
     static async createSession() {
-        const {
-            data: { sessions },
-        } = await axios.post(flareUrl, {
-            cmd: "sessions.list",
-        })
-        if (sessions?.includes(flareSession)) return
         await axios.post(flareUrl, {
             cmd: "sessions.create",
             session: flareSession,
@@ -37,6 +31,13 @@ export default class FlareSolver {
                 url,
             })
             return result.data.solution
+        } catch (e) {
+            const message = e.response?.data?.message
+            if (message?.includes("This session does not exist")) {
+                await FlareSolver.createSession()
+                return FlareSolver.get(url)
+            }
+            throw e
         } finally {
             queue.end(job)
         }
