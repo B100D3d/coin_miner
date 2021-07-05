@@ -60,7 +60,11 @@ export default class TelegramApiReg {
             httpsAgent: new (HttpsProxyAgent as any)(proxy),
         }
         const loginRes = await TGClient.get(`/auth/login`, loginConfig)
-        return loginRes.headers["set-cookie"]
+        const setCookieArray = loginRes.headers["set-cookie"] || []
+        const cookies = setCookieArray.map(
+            (cookie) => cookie.split(";")?.[0] || ""
+        )
+        return cookies.join("; ")
     }
 
     /**
@@ -112,7 +116,7 @@ export default class TelegramApiReg {
 
             if (existedApiData) return existedApiData
 
-            const appTitle = crypto.randomBytes(20).toString("hex")
+            const appTitle = crypto.randomBytes(10).toString("hex")
             const createAppConfig = {
                 params: {
                     hash: randomHash,
@@ -122,14 +126,12 @@ export default class TelegramApiReg {
                     app_platform: "android",
                     app_desc: "",
                 },
-                headers: {
-                    Cookie: cookies,
-                },
+                headers: { Cookie: cookies },
                 withCredentials: true,
                 httpsAgent: new (HttpsProxyAgent as any)(proxy),
             }
-            await TGClient.get("/create", createAppConfig)
-            return this.getApi(cookies)
+            await TGClient.get("/apps/create", createAppConfig)
+            return TelegramApiReg.getApi(cookies, proxy)
         } catch (e) {
             console.error("Can't create telegram api: ", e)
             return null

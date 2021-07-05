@@ -22,7 +22,11 @@ import { SessionAttributes } from "../database/models/Session"
 type Job = "Visit sites" | "Message bots" | "Join chats"
 type State = "working" | "sleep"
 
-const START_REFERRAL_CODE = process.env.START_REFERRAL_CODE
+const START_REFERRAL_CODES = {
+    LTC: process.env.LTC_START_REFERRAL_CODE,
+    BCH: process.env.BCH_START_REFERRAL_CODE,
+    ZEC: process.env.ZEC_START_REFERRAL_CODE,
+}
 
 const NO_ADS_PATTERN = /Sorry, there are no new ads available./g
 const EARNED_PATTERN = /.*you earned.*/gi
@@ -220,7 +224,7 @@ export default class BaseMiner {
     }
 
     private async startClickBot() {
-        await this.startBot(this.ENTITY, START_REFERRAL_CODE)
+        await this.startBot(this.ENTITY, START_REFERRAL_CODES[this.COIN_NAME])
     }
 
     private async blockBot(entity: string) {
@@ -570,12 +574,12 @@ export default class BaseMiner {
     }
 
     async stopMining() {
-        this.logger.log("Pause")
+        this.logger.log("Paused")
         this.paused = true
     }
 
     async startMining() {
-        Logger.log(chalk.cyan(`Start mining with ${this.COIN_NAME} miner...`))
+        this.logger.log(chalk.cyan(`Start mining...`))
         this.paused = false
         this.startedAt = new Date()
 
