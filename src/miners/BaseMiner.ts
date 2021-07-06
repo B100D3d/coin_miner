@@ -11,13 +11,13 @@ import { getFirstDigits, random, stringify, timeout } from "../utils"
 import { notifyMinerUpdates } from "../websocket"
 import db from "../database"
 import MinerLogger from "../utils/miner_logger"
-import Logger from "../utils/logger"
 import TelegramLogger from "../utils/telegram_logger"
 import FlareSolver from "../services/FlareSolver"
 import Queue from "../utils/queue"
 import JoinedChannels from "../database/models/JoinedChannels"
 import Statistics from "../database/models/Statistics"
 import { SessionAttributes } from "../database/models/Session"
+import InputEntities from "services/InputEntities"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 type State = "working" | "sleep"
@@ -101,8 +101,17 @@ export default class BaseMiner {
         )
     }
 
-    private async sendMessage(message: string) {
-        await this.client.sendMessage(this.ENTITY, { message })
+    private async sendMessage(message: string, entity = this.ENTITY) {
+        const inputEntity = await InputEntities.getInputEntity(
+            entity,
+            this.client
+        )
+        await this.client.invoke(
+            new Api.messages.SendMessage({
+                peer: inputEntity,
+                message: message,
+            })
+        )
     }
 
     private async startJob() {
@@ -208,7 +217,7 @@ export default class BaseMiner {
         }
     }
 
-    private async startBot(entity: Api.TypeEntityLike, startParam?: string) {
+    private async startBot(entity: string, startParam?: string) {
         await this.client.invoke(new Api.contacts.Unblock({ id: entity }))
         if (startParam) {
             await this.client.invoke(
@@ -219,7 +228,7 @@ export default class BaseMiner {
                 })
             )
         } else {
-            await this.client.sendMessage(entity, { message: "/start" })
+            await this.sendMessage("/start", entity)
         }
     }
 
