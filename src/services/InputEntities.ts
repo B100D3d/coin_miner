@@ -1,7 +1,7 @@
-import Entity, { EntityAttributes } from "../database/models/Entity"
-import db from "../database"
 import { Api, TelegramClient } from "telegram"
 import bigInt from "big-integer"
+import Entity, { EntityAttributes } from "../database/models/Entity"
+import db from "../database"
 
 export default class InputEntities {
     private static entitiesCache = new Map<string, Api.TypeInputPeer>()
@@ -17,7 +17,7 @@ export default class InputEntities {
         if (InputEntities.entitiesCache.has(username))
             return InputEntities.entitiesCache.get(username)
 
-        let dbEntity = await Entity.getEntity(username)
+        const dbEntity = await Entity.getEntity(username)
         if (dbEntity) {
             const { type, id, accessHash } =
                 dbEntity.toJSON() as EntityAttributes

@@ -17,7 +17,7 @@ import Queue from "../utils/queue"
 import JoinedChannels from "../database/models/JoinedChannels"
 import Statistics from "../database/models/Statistics"
 import { SessionAttributes } from "../database/models/Session"
-import InputEntities from "services/InputEntities"
+import InputEntities from "../services/InputEntities"
 
 type Job = "Visit sites" | "Message bots" | "Join chats"
 type State = "working" | "sleep"
@@ -113,7 +113,7 @@ export default class BaseMiner {
         await this.client.invoke(
             new Api.messages.SendMessage({
                 peer: inputEntity,
-                message: message,
+                message,
             })
         )
     }
