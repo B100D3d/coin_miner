@@ -4,7 +4,19 @@ import { Api, TelegramClient } from "telegram"
 import bigInt from "big-integer"
 
 export default class InputEntities {
-    static async getInputEntity(username: string, client: TelegramClient) {
+    private static entitiesCache = new Map<string, Api.TypeInputPeer>()
+
+    static async getInputEntity(
+        username: string | Api.TypeInputPeer,
+        client: TelegramClient
+    ) {
+        if (typeof username !== "string") {
+            return username
+        }
+
+        if (InputEntities.entitiesCache.has(username))
+            return InputEntities.entitiesCache.get(username)
+
         let dbEntity = await Entity.getEntity(username)
         if (dbEntity) {
             const { type, id, accessHash } =
@@ -21,7 +33,10 @@ export default class InputEntities {
                 accessHash: bigInt(accessHash),
             } as any
 
-            return new constructor(props)
+            const entity = new constructor(props)
+            InputEntities.entitiesCache.set(username, entity)
+
+            return entity
         }
 
         const entity = await client.getInputEntity(username)
@@ -40,6 +55,8 @@ export default class InputEntities {
         }
 
         if (!id) throw new Error("Entity have no id")
+
+        InputEntities.entitiesCache.set(username, entity)
 
         await db.transaction(async (t) => {
             await Entity.saveEntity({ username, id, accessHash, type }, t)

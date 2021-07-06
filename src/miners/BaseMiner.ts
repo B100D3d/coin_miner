@@ -91,6 +91,10 @@ export default class BaseMiner {
         )
     }
 
+    private getInputEntity(entity: string | Api.TypeInputPeer) {
+        return InputEntities.getInputEntity(entity, this.client)
+    }
+
     private setBalanceTimeout() {
         if (this.balanceTimeout) {
             clearTimeout(this.balanceTimeout)
@@ -101,11 +105,11 @@ export default class BaseMiner {
         )
     }
 
-    private async sendMessage(message: string, entity = this.ENTITY) {
-        const inputEntity = await InputEntities.getInputEntity(
-            entity,
-            this.client
-        )
+    private async sendMessage(
+        message: string,
+        entity: string | Api.TypeInputPeer = this.ENTITY
+    ) {
+        const inputEntity = await this.getInputEntity(entity)
         await this.client.invoke(
             new Api.messages.SendMessage({
                 peer: inputEntity,
@@ -138,9 +142,10 @@ export default class BaseMiner {
         messageId: number,
         button: Api.KeyboardButtonCallback
     ) {
+        const inputEntity = await this.getInputEntity(this.ENTITY)
         await this.client.invoke(
             new Api.messages.GetBotCallbackAnswer({
-                peer: this.ENTITY,
+                peer: inputEntity,
                 msgId: messageId,
                 data: button.data,
             })
@@ -217,13 +222,17 @@ export default class BaseMiner {
         }
     }
 
-    private async startBot(entity: string, startParam?: string) {
-        await this.client.invoke(new Api.contacts.Unblock({ id: entity }))
+    private async startBot(
+        entity: string | Api.TypeInputPeer,
+        startParam?: string
+    ) {
+        const inputEntity = await this.getInputEntity(entity)
+        await this.client.invoke(new Api.contacts.Unblock({ id: inputEntity }))
         if (startParam) {
             await this.client.invoke(
                 new Api.messages.StartBot({
-                    bot: entity,
-                    peer: entity,
+                    bot: inputEntity,
+                    peer: inputEntity,
                     startParam,
                 })
             )
@@ -236,12 +245,13 @@ export default class BaseMiner {
         await this.startBot(this.ENTITY, START_REFERRAL_CODES[this.COIN_NAME])
     }
 
-    private async blockBot(entity: string) {
-        await this.client.invoke(new Api.contacts.Block({ id: entity }))
+    private async blockBot(entity: string | Api.TypeInputPeer) {
+        const inputEntity = await this.getInputEntity(entity)
+        await this.client.invoke(new Api.contacts.Block({ id: inputEntity }))
         await this.client.invoke(
             new Api.messages.DeleteHistory({
                 maxId: 0,
-                peer: entity,
+                peer: inputEntity,
             })
         )
     }
@@ -254,9 +264,9 @@ export default class BaseMiner {
             (entity) => entity instanceof Api.Channel
         ) as Array<Api.Channel>
 
-        const twelveHoursAgo = moment().subtract(12, "hours").toDate()
+        const dayAgo = moment().subtract(1, "day").toDate()
         const filteredChannels = channels.filter(
-            (channel) => new Date(channel.date) < twelveHoursAgo
+            (channel) => new Date(channel.date) < dayAgo
         )
 
         const leave = async (channel: Api.TypeEntityLike) => {
@@ -268,8 +278,11 @@ export default class BaseMiner {
         await this.sleep(2)
     }
 
-    private async joinChannel(channel: Api.TypeEntityLike) {
-        await this.client.invoke(new Api.channels.JoinChannel({ channel }))
+    private async joinChannel(channel: string) {
+        const inputEntity = await this.getInputEntity(channel)
+        await this.client.invoke(
+            new Api.channels.JoinChannel({ channel: inputEntity })
+        )
     }
 
     private async channelsHandler(event: NewMessageEvent, url: string) {
@@ -329,31 +342,33 @@ export default class BaseMiner {
         const reqUrl = new URL(req.url)
         const startParam = reqUrl.searchParams.get("start")
         const bot = reqUrl.pathname.replace(/\//g, "")
+        const inputEntity = await this.getInputEntity(bot)
+        const currentEntity = await this.getInputEntity(this.ENTITY)
 
-        await this.startBot(bot, startParam)
+        await this.startBot(inputEntity, startParam)
 
         this.logger.log(`Messaged to bot ${bot}, waiting for answer...`)
         await this.sleep(10)
 
         const messages = await this.client
-            .getMessages(bot, {
-                fromUser: bot,
+            .getMessages(inputEntity, {
+                fromUser: inputEntity,
             })
             .catch(() => [])
 
         if (messages.length === 0) {
             this.logger.error(`Bot ${bot} didn't answer`)
-            await this.blockBot(bot)
+            await this.blockBot(inputEntity)
             await this.skipTask(event)
             return
         }
 
         const message = messages[0]
-        await this.client.forwardMessages(this.ENTITY, {
+        await this.client.forwardMessages(currentEntity, {
             messages: [message.id],
-            fromPeer: bot,
+            fromPeer: inputEntity,
         })
-        await this.blockBot(bot)
+        await this.blockBot(inputEntity)
     }
 
     private async websiteHandler(event: NewMessageEvent, url: string) {
