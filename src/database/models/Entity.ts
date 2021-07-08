@@ -1,6 +1,6 @@
 import { Model, DataTypes, Transaction } from "sequelize"
 import db from "../index"
-import { DBTry } from "utils/database"
+import { DBTry } from "../../utils/database"
 
 type EntityType = "user" | "chat" | "channel"
 
@@ -37,6 +37,7 @@ Entity.init(
         id: {
             type: DataTypes.NUMBER,
             allowNull: false,
+            primaryKey: true,
         },
         accessHash: {
             type: DataTypes.NUMBER,

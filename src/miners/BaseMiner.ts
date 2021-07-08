@@ -518,7 +518,7 @@ export default class BaseMiner {
         await this.sleep(3)
         await this.sendMessage(WITHDRAW_CONFIRM)
         TelegramLogger.info(
-            `${this.session.phone} ${this.COIN_NAME} has withdrew`
+            `${this.session.phone} ${this.COIN_NAME} has withdrew with balance ${this.balance}`
         )
     }
 

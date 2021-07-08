@@ -10,17 +10,24 @@ export default class InputEntities {
         username: string | Api.TypeInputPeer,
         client: TelegramClient
     ) {
+        console.log("get entity", { username })
         if (typeof username !== "string") {
             return username
         }
 
-        if (InputEntities.entitiesCache.has(username))
+        if (InputEntities.entitiesCache.has(username)) {
+            console.log(
+                "InputEntities has username: ",
+                InputEntities.entitiesCache.get(username)
+            )
             return InputEntities.entitiesCache.get(username)
+        }
 
         const dbEntity = await Entity.getEntity(username)
         if (dbEntity) {
             const { type, id, accessHash } =
                 dbEntity.toJSON() as EntityAttributes
+            console.log("Has db entity: ", { type, id, accessHash })
             const constructor =
                 type === "user"
                     ? Api.InputPeerUser
@@ -33,6 +40,8 @@ export default class InputEntities {
                 accessHash: bigInt(accessHash),
             } as any
 
+            console.log({ constructor, props })
+
             const entity = new constructor(props)
             InputEntities.entitiesCache.set(username, entity)
 
@@ -40,6 +49,7 @@ export default class InputEntities {
         }
 
         const entity = await client.getInputEntity(username)
+        console.log("Get input entity from client: ", { entity })
         const accessHash = (entity as any).accessHash
         let id = null
         let type = null
