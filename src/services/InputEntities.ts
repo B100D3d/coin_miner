@@ -45,8 +45,8 @@ export default class InputEntities {
                     : Api.InputPeerChannel
 
             const props = {
-                [`${type}Id`]: id,
-                accessHash: bigInt(accessHash),
+                [`${type}Id`]: Number(id),
+                accessHash: bigInt(Number(accessHash)),
             } as any
 
             Logger.info(`${this.phone} | constructor: `, { constructor, props })
