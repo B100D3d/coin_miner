@@ -15,7 +15,7 @@ export interface LogItem {
     date: Date
 }
 
-const MAX_LOGS_COUNT = 100000
+const MAX_LOGS_COUNT = 100
 const time = () => moment().format("hh:mm:ss")
 const getLogId = (logs: Array<LogItem>) => {
     return logs.length ? logs[logs.length - 1].id + 1 : 0
