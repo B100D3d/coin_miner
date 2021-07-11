@@ -1,11 +1,11 @@
 import { TelegramClient } from "telegram"
+import { serializeError } from "serialize-error"
 import { SessionAttributes } from "../database/models/Session"
 import { getTelegramClient, startTelegramClient } from "./TelegramClient"
 import MinersState from "./MinersState"
 import MinerBuilder from "../miners/MinerBuilder"
 import TelegramLogger from "../utils/telegram_logger"
 import { stringify } from "../utils"
-import { serializeError } from "serialize-error"
 
 export default class TelegramMiner {
     static async launch(

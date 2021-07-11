@@ -53,6 +53,7 @@ export interface MinerProps {
     client: TelegramClient
     session: SessionAttributes
     channelsQueue: Queue
+    inputEntities: InputEntities
     logger: MinerLogger
 }
 
@@ -60,6 +61,7 @@ export default class BaseMiner {
     client: TelegramClient
     session: SessionAttributes
     logger: MinerLogger
+    inputEntities: InputEntities
     channelsQueue: Queue
 
     ENTITY = ""
@@ -79,11 +81,18 @@ export default class BaseMiner {
     startedAt = null
     balanceTimeout = null
 
-    constructor({ client, session, channelsQueue, logger }: MinerProps) {
+    constructor({
+        client,
+        session,
+        channelsQueue,
+        logger,
+        inputEntities,
+    }: MinerProps) {
         this.client = client
         this.session = session
         this.logger = logger
         this.channelsQueue = channelsQueue
+        this.inputEntities = inputEntities
 
         this.client.addEventHandler(
             (event) => this.filterEvent(event),
@@ -92,7 +101,7 @@ export default class BaseMiner {
     }
 
     private getInputEntity(entity: string | Api.TypeInputPeer) {
-        return InputEntities.getInputEntity(entity, this.client)
+        return this.inputEntities.getInputEntity(entity)
     }
 
     private setBalanceTimeout() {

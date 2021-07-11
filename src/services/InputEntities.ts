@@ -5,30 +5,38 @@ import db from "../database"
 import Logger from "../utils/logger"
 
 export default class InputEntities {
-    private static entitiesCache = new Map<string, Api.TypeInputPeer>()
+    private readonly phone: string
+    private readonly client: TelegramClient
+    private entitiesCache = new Map<string, Api.TypeInputPeer>()
 
-    static async getInputEntity(
-        username: string | Api.TypeInputPeer,
-        client: TelegramClient
-    ) {
-        Logger.info("get entity", { username })
+    constructor(phone: string, client: TelegramClient) {
+        this.phone = phone
+        this.client = client
+    }
+
+    async getInputEntity(username: string | Api.TypeInputPeer) {
+        Logger.info(`${this.phone} | get entity`, { username })
         if (typeof username !== "string") {
             return username
         }
 
-        if (InputEntities.entitiesCache.has(username)) {
+        if (this.entitiesCache.has(username)) {
             Logger.info(
-                "InputEntities has username: ",
-                InputEntities.entitiesCache.get(username)
+                `${this.phone} | InputEntities has username: `,
+                this.entitiesCache.get(username)
             )
-            return InputEntities.entitiesCache.get(username)
+            return this.entitiesCache.get(username)
         }
 
-        const dbEntity = await Entity.getEntity(username)
+        const dbEntity = await Entity.getEntity(this.phone, username)
         if (dbEntity) {
             const { type, id, accessHash } =
                 dbEntity.toJSON() as EntityAttributes
-            Logger.info("Has db entity: ", { type, id, accessHash })
+            Logger.info(`${this.phone} | Has db entity: `, {
+                type,
+                id,
+                accessHash,
+            })
             const constructor =
                 type === "user"
                     ? Api.InputPeerUser
@@ -41,16 +49,18 @@ export default class InputEntities {
                 accessHash: bigInt(accessHash),
             } as any
 
-            Logger.info({ constructor, props })
+            Logger.info(`${this.phone} | constructor: `, { constructor, props })
 
             const entity = new constructor(props)
-            InputEntities.entitiesCache.set(username, entity)
+            this.entitiesCache.set(username, entity)
 
             return entity
         }
 
-        const entity = await client.getInputEntity(username)
-        Logger.info("Get input entity from client: ", { entity })
+        const entity = await this.client.getInputEntity(username)
+        Logger.info(`${this.phone} | Get input entity from client: `, {
+            entity,
+        })
         const accessHash = (entity as any).accessHash
         let id = null
         let type = null
@@ -67,10 +77,13 @@ export default class InputEntities {
 
         if (!id) throw new Error("Entity have no id")
 
-        InputEntities.entitiesCache.set(username, entity)
+        this.entitiesCache.set(username, entity)
 
         await db.transaction(async (t) => {
-            await Entity.saveEntity({ username, id, accessHash, type }, t)
+            await Entity.saveEntity(
+                { phone: this.phone, username, id, accessHash, type },
+                t
+            )
         })
 
         return entity

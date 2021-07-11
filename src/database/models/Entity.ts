@@ -5,6 +5,7 @@ import { DBTry } from "../../utils/database"
 type EntityType = "user" | "chat" | "channel"
 
 export interface EntityAttributes {
+    phone: string
     username: string
     id: number
     accessHash: number
@@ -12,14 +13,15 @@ export interface EntityAttributes {
 }
 
 class Entity extends Model<EntityAttributes> implements EntityAttributes {
+    phone!: string
     username!: string
     id!: number
     accessHash!: number
     type!: EntityType
 
     @DBTry("Can't get entity by username")
-    static getEntity(username: string) {
-        return Entity.findOne({ where: { username } })
+    static getEntity(phone: string, username: string) {
+        return Entity.findOne({ where: { phone, username } })
     }
 
     @DBTry("Can't save entity")
@@ -30,6 +32,10 @@ class Entity extends Model<EntityAttributes> implements EntityAttributes {
 
 Entity.init(
     {
+        phone: {
+            type: DataTypes.STRING,
+            allowNull: false,
+        },
         username: {
             type: DataTypes.STRING,
             allowNull: false,

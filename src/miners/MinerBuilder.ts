@@ -5,6 +5,7 @@ import BchMiner from "./BchMiner"
 import ZecMiner from "./ZecMiner"
 import BaseMiner from "./BaseMiner"
 import { SessionAttributes } from "../database/models/Session"
+import InputEntities from "../services/InputEntities"
 
 export default class MinerBuilder {
     /**
@@ -17,9 +18,11 @@ export default class MinerBuilder {
         session: SessionAttributes
     ): Array<BaseMiner> {
         const channelsQueue = new Queue(1)
-        const ltcMiner = new LtcMiner({ client, session, channelsQueue })
-        const bchMiner = new BchMiner({ client, session, channelsQueue })
-        const zecMiner = new ZecMiner({ client, session, channelsQueue })
+        const inputEntities = new InputEntities(session.phone, client)
+        const props = { client, session, channelsQueue, inputEntities }
+        const ltcMiner = new LtcMiner(props)
+        const bchMiner = new BchMiner(props)
+        const zecMiner = new ZecMiner(props)
 
         return [ltcMiner, bchMiner, zecMiner]
     }
