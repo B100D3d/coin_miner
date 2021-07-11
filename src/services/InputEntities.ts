@@ -2,6 +2,7 @@ import { Api, TelegramClient } from "telegram"
 import bigInt from "big-integer"
 import Entity, { EntityAttributes } from "../database/models/Entity"
 import db from "../database"
+import Logger from "../utils/logger"
 
 export default class InputEntities {
     private static entitiesCache = new Map<string, Api.TypeInputPeer>()
@@ -10,13 +11,13 @@ export default class InputEntities {
         username: string | Api.TypeInputPeer,
         client: TelegramClient
     ) {
-        console.log("get entity", { username })
+        Logger.info("get entity", { username })
         if (typeof username !== "string") {
             return username
         }
 
         if (InputEntities.entitiesCache.has(username)) {
-            console.log(
+            Logger.info(
                 "InputEntities has username: ",
                 InputEntities.entitiesCache.get(username)
             )
@@ -27,7 +28,7 @@ export default class InputEntities {
         if (dbEntity) {
             const { type, id, accessHash } =
                 dbEntity.toJSON() as EntityAttributes
-            console.log("Has db entity: ", { type, id, accessHash })
+            Logger.info("Has db entity: ", { type, id, accessHash })
             const constructor =
                 type === "user"
                     ? Api.InputPeerUser
@@ -40,7 +41,7 @@ export default class InputEntities {
                 accessHash: bigInt(accessHash),
             } as any
 
-            console.log({ constructor, props })
+            Logger.info({ constructor, props })
 
             const entity = new constructor(props)
             InputEntities.entitiesCache.set(username, entity)
@@ -49,7 +50,7 @@ export default class InputEntities {
         }
 
         const entity = await client.getInputEntity(username)
-        console.log("Get input entity from client: ", { entity })
+        Logger.info("Get input entity from client: ", { entity })
         const accessHash = (entity as any).accessHash
         let id = null
         let type = null
