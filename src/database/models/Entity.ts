@@ -8,7 +8,7 @@ export interface EntityAttributes {
     phone: string
     username: string
     id: number
-    accessHash: number
+    accessHash: string
     type: EntityType
 }
 
@@ -16,7 +16,7 @@ class Entity extends Model<EntityAttributes> implements EntityAttributes {
     phone!: string
     username!: string
     id!: number
-    accessHash!: number
+    accessHash!: string
     type!: EntityType
 
     @DBTry("Can't get entity by username")
@@ -46,7 +46,7 @@ Entity.init(
             primaryKey: true,
         },
         accessHash: {
-            type: DataTypes.NUMBER,
+            type: DataTypes.STRING,
             allowNull: false,
         },
         type: {

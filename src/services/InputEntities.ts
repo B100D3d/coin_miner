@@ -2,7 +2,6 @@ import { Api, TelegramClient } from "telegram"
 import bigInt from "big-integer"
 import Entity, { EntityAttributes } from "../database/models/Entity"
 import db from "../database"
-import Logger from "../utils/logger"
 
 export default class InputEntities {
     private readonly phone: string
@@ -15,16 +14,11 @@ export default class InputEntities {
     }
 
     async getInputEntity(username: string | Api.TypeInputPeer) {
-        Logger.info(`${this.phone} | get entity`, { username })
         if (typeof username !== "string") {
             return username
         }
 
         if (this.entitiesCache.has(username)) {
-            Logger.info(
-                `${this.phone} | InputEntities has username: `,
-                this.entitiesCache.get(username)
-            )
             return this.entitiesCache.get(username)
         }
 
@@ -32,11 +26,6 @@ export default class InputEntities {
         if (dbEntity) {
             const { type, id, accessHash } =
                 dbEntity.toJSON() as EntityAttributes
-            Logger.info(`${this.phone} | Has db entity: `, {
-                type,
-                id,
-                accessHash,
-            })
             const constructor =
                 type === "user"
                     ? Api.InputPeerUser
@@ -46,22 +35,18 @@ export default class InputEntities {
 
             const props = {
                 [`${type}Id`]: Number(id),
-                accessHash: bigInt(Number(accessHash)),
+                accessHash: bigInt(accessHash),
             } as any
 
-            Logger.info(`${this.phone} | constructor: `, { constructor, props })
-
             const entity = new constructor(props)
+
             this.entitiesCache.set(username, entity)
 
             return entity
         }
 
         const entity = await this.client.getInputEntity(username)
-        Logger.info(`${this.phone} | Get input entity from client: `, {
-            entity,
-        })
-        const accessHash = (entity as any).accessHash
+        const accessHash = (entity as any).accessHash?.toString() || ""
         let id = null
         let type = null
         if (entity instanceof Api.InputPeerUser) {
@@ -81,7 +66,13 @@ export default class InputEntities {
 
         await db.transaction(async (t) => {
             await Entity.saveEntity(
-                { phone: this.phone, username, id, accessHash, type },
+                {
+                    phone: this.phone,
+                    username,
+                    id,
+                    accessHash,
+                    type,
+                },
                 t
             )
         })

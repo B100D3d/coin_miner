@@ -119,12 +119,7 @@ export default class BaseMiner {
         entity: string | Api.TypeInputPeer = this.ENTITY
     ) {
         const inputEntity = await this.getInputEntity(entity)
-        await this.client.invoke(
-            new Api.messages.SendMessage({
-                peer: inputEntity,
-                message,
-            })
-        )
+        await this.client.sendMessage(inputEntity, { message })
     }
 
     private async startJob() {
@@ -246,7 +241,7 @@ export default class BaseMiner {
                 })
             )
         } else {
-            await this.sendMessage("/start", entity)
+            await this.sendMessage("/start", inputEntity)
         }
     }
 
@@ -321,11 +316,12 @@ export default class BaseMiner {
                     })
                     const joinedButton = this.getButton(event, "Joined")
                     if (joinedButton instanceof Api.KeyboardButtonCallback) {
-                        await this.sleep(random(40, 50))
+                        await this.sleep(5)
                         await this.clickButton(event.message.id, joinedButton)
                         this.logger.log(
                             `Channel ${channel} successfully joined`
                         )
+                        await this.sleep(random(50, 60))
                     } else {
                         await this.skipTask(event)
                     }
