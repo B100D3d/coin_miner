@@ -5,6 +5,12 @@ const queue = new Queue(Number(process.env.FLARE_QUEUE || 100))
 const flareUrl = `${process.env.FLARE_URL}/v1`
 const flareSession = "MinerSession"
 
+const baseProps = {
+    session: flareSession,
+    password: process.env.FLARE_PASS,
+    maxTimeout: 30000,
+}
+
 interface FlareSolution {
     url: string
     status: number
@@ -17,7 +23,7 @@ export default class FlareSolver {
     static async createSession() {
         await axios.post(flareUrl, {
             cmd: "sessions.create",
-            session: flareSession,
+            ...baseProps,
         })
     }
 
@@ -27,8 +33,8 @@ export default class FlareSolver {
             await queue.wait(job)
             const result = await axios.post(flareUrl, {
                 cmd: "request.get",
-                session: flareSession,
                 url,
+                ...baseProps,
             })
             return result.data.solution
         } catch (e) {
