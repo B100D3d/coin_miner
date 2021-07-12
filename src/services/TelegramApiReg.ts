@@ -1,7 +1,7 @@
 import axios from "axios"
 import crypto from "crypto"
 import HttpsProxyAgent from "https-proxy-agent"
-import { parse as parseHTML } from "node-html-parser"
+import { HTMLElement, parse as parseHTML } from "node-html-parser"
 import { getProxy } from "../utils/proxy"
 
 interface TelegramApi {
@@ -14,6 +14,82 @@ const TGClient = axios.create({
 })
 
 export default class TelegramApiReg {
+    /**
+     * sign in to telegram account and returns cookies
+     * @param phone phone number
+     * @param code telegram code (password)
+     * @param hash random hash
+     * @param proxy axios proxy
+     * @returns cookies
+     */
+    private static async login(
+        phone: string,
+        code: string,
+        hash: string,
+        proxy = getProxy()
+    ): Promise<string> {
+        const loginConfig = {
+            params: {
+                phone,
+                random_hash: hash,
+                password: code,
+            },
+            withCredentials: true,
+            httpsAgent: new (HttpsProxyAgent as any)(proxy),
+        }
+        const loginRes = await TGClient.get(`/auth/login`, loginConfig)
+        const setCookieArray = loginRes.headers["set-cookie"] || []
+        const cookies = setCookieArray.map(
+            (cookie) => cookie.split(";")?.[0] || ""
+        )
+        return cookies.join("; ")
+    }
+
+    /**
+     * returns parsed /apps page HTML
+     */
+    private static async getAppsHTML(
+        cookies: string,
+        proxy = getProxy()
+    ): Promise<HTMLElement> {
+        const apiListRes = await TGClient.get("/apps", {
+            headers: { Cookie: cookies },
+            withCredentials: true,
+            httpsAgent: new (HttpsProxyAgent as any)(proxy),
+        })
+        return parseHTML(apiListRes.data)
+    }
+
+    /**
+     * returns telegram api data if already created
+     */
+    private static async getApi(
+        cookies: string,
+        proxy = getProxy()
+    ): Promise<TelegramApi | undefined> {
+        const apiListHTML = await TelegramApiReg.getAppsHTML(cookies, proxy)
+        const editForm = apiListHTML.querySelector("#app_edit_form")
+
+        if (!editForm) return
+
+        const formControls = editForm.querySelectorAll(".form-control")
+        const apiId = +formControls[0].querySelector("strong").textContent
+        const apiHash = formControls[1].textContent
+        return { apiId, apiHash }
+    }
+
+    /**
+     * returns hidden input hash to create telegram api
+     */
+    private static async getCreationApiHash(
+        cookies: string,
+        proxy = getProxy()
+    ): Promise<string | undefined> {
+        const apiListHTML = await TelegramApiReg.getAppsHTML(cookies, proxy)
+        const createForm = apiListHTML.querySelector("#app_create_form")
+        return createForm?.querySelector("> input")?.getAttribute("value")
+    }
+
     /**
      * sending request to get telegram code (password)
      * @param phone phone number
@@ -34,63 +110,6 @@ export default class TelegramApiReg {
             console.error("Can't send telegram code: ", e)
             throw e
         }
-    }
-
-    /**
-     * sign in to telegram account and returns cookies
-     * @param phone phone number
-     * @param code telegram code (password)
-     * @param hash random hash
-     * @param proxy axios proxy
-     * @returns cookies
-     */
-    static async login(
-        phone: string,
-        code: string,
-        hash: string,
-        proxy = getProxy()
-    ): Promise<Array<string>> {
-        const loginConfig = {
-            params: {
-                phone,
-                random_hash: hash,
-                password: code,
-            },
-            withCredentials: true,
-            httpsAgent: new (HttpsProxyAgent as any)(proxy),
-        }
-        const loginRes = await TGClient.get(`/auth/login`, loginConfig)
-        const setCookieArray = loginRes.headers["set-cookie"] || []
-        const cookies = setCookieArray.map(
-            (cookie) => cookie.split(";")?.[0] || ""
-        )
-        return cookies.join("; ")
-    }
-
-    /**
-     * returns telegram api data if already created
-     * @param cookies
-     * @param proxy axios proxy
-     * @returns telegram api data
-     */
-    static async getApi(
-        cookies: Array<string>,
-        proxy = getProxy()
-    ): Promise<TelegramApi | undefined> {
-        const apiListRes = await TGClient.get("/apps", {
-            headers: { Cookie: cookies },
-            withCredentials: true,
-            httpsAgent: new (HttpsProxyAgent as any)(proxy),
-        })
-        const apiListHTML = parseHTML(apiListRes.data)
-        const form = apiListHTML.querySelector("#app_edit_form")
-
-        if (!form) return
-
-        const formControls = form.querySelectorAll(".form-control")
-        const apiId = +formControls[0].querySelector("strong").textContent
-        const apiHash = formControls[1].textContent
-        return { apiId, apiHash }
     }
 
     /**
@@ -115,11 +134,14 @@ export default class TelegramApiReg {
             const existedApiData = await TelegramApiReg.getApi(cookies, proxy)
 
             if (existedApiData) return existedApiData
+            const hash = await TelegramApiReg.getCreationApiHash(cookies, proxy)
+            if (!hash) return
 
-            const appTitle = crypto.randomBytes(10).toString("hex")
+            const hex = crypto.randomBytes(10).toString("hex")
+            const appTitle = `app${hex}`
             const createAppConfig = {
                 params: {
-                    hash: randomHash,
+                    hash,
                     app_title: appTitle,
                     app_shortname: appTitle,
                     app_url: "",
