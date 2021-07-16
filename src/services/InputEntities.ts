@@ -13,7 +13,7 @@ export default class InputEntities {
         this.client = client
     }
 
-    async getInputEntity(username: string | Api.TypeInputPeer) {
+    async getInputEntity(username: string | Api.TypeInputPeer, maxRequests) {
         if (typeof username !== "string") {
             return username
         }

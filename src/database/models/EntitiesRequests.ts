@@ -25,7 +25,7 @@ class EntitiesRequests
     lastRequestDate!: Date
 
     @DBTry("Can't get joined count")
-    static async getJoinedCount(phone: string) {
+    static async getRequestCount(phone: string) {
         const where = { phone }
         const account = (
             await EntitiesRequests.findOne({
@@ -45,7 +45,10 @@ class EntitiesRequests
     }
 
     @DBTry("Can't increment joined count")
-    static async incrementJoinedCount(phone: string, transaction: Transaction) {
+    static async incrementRequestCount(
+        phone: string,
+        transaction: Transaction
+    ) {
         const where = { phone }
         await EntitiesRequests.update(
             {

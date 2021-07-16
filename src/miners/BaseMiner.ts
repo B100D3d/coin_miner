@@ -18,8 +18,9 @@ import JoinedChannels from "../database/models/JoinedChannels"
 import Statistics from "../database/models/Statistics"
 import { SessionAttributes } from "../database/models/Session"
 import InputEntities from "../services/InputEntities"
+import MinersJobs from "./MinersJobs"
+import EntitiesRequests from "../database/models/EntitiesRequests"
 
-type Job = "Visit sites" | "Message bots" | "Join chats"
 type State = "working" | "sleep"
 
 const START_REFERRAL_CODES = {
@@ -47,7 +48,7 @@ const MAX_AMOUNT_WITHDRAW = "💰 Max amount"
 const WITHDRAW_CONFIRM = "✔️ Confirm"
 
 const MAX_CHANNELS_PER_HOUR = 30
-const JOBS: Array<Job> = ["Visit sites", "Message bots", "Join chats"]
+const MAX_REQUESTS_PER_DAY = 30
 
 export interface MinerProps {
     client: TelegramClient
@@ -55,6 +56,7 @@ export interface MinerProps {
     channelsQueue: Queue
     inputEntities: InputEntities
     logger: MinerLogger
+    jobs: MinersJobs
 }
 
 export default class BaseMiner {
@@ -63,13 +65,13 @@ export default class BaseMiner {
     logger: MinerLogger
     inputEntities: InputEntities
     channelsQueue: Queue
+    jobs: MinersJobs
 
     ENTITY = ""
     COIN_NAME = ""
     MIN_WITHDRAW = 0
     ADDRESS = ""
 
-    currentJob = JOBS[0]
     needCheckBalance = false
     balance = 0
     earned = 0
@@ -87,12 +89,14 @@ export default class BaseMiner {
         channelsQueue,
         logger,
         inputEntities,
+        jobs,
     }: MinerProps) {
         this.client = client
         this.session = session
         this.logger = logger
         this.channelsQueue = channelsQueue
         this.inputEntities = inputEntities
+        this.jobs = jobs
 
         this.client.addEventHandler(
             (event) => this.filterEvent(event),
@@ -123,7 +127,7 @@ export default class BaseMiner {
     }
 
     private async startJob() {
-        await this.sendMessage(this.currentJob)
+        await this.sendMessage(this.jobs.currentJob)
     }
 
     private async checkBalance() {
@@ -166,10 +170,7 @@ export default class BaseMiner {
     }
 
     private async switchJob() {
-        const currentIndex = JOBS.indexOf(this.currentJob)
-        if (currentIndex === JOBS.length - 1) {
-            this.currentJob = JOBS[0]
-
+        if (this.jobs.isLastJob) {
             if (this.needCheckBalance) {
                 await this.checkBalance()
                 this.needCheckBalance = false
@@ -180,14 +181,25 @@ export default class BaseMiner {
             this.state = "sleep"
             await this.sleep(120)
             this.state = "working"
-            await this.startJob()
-            return
         }
 
-        this.currentJob = JOBS[currentIndex + 1]
-        this.logger.log(chalk.blue(`Switch to ${this.currentJob} job`))
+        this.jobs.nextJob()
+        this.logger.log(chalk.blue(`Switch to ${this.jobs.currentJob} job`))
         await this.sleep(2)
         await this.startJob()
+    }
+
+    private async checkJobs() {
+        const [joinedChannels, requestCount] = await Promise.all([
+            JoinedChannels.getJoinedCount(this.session.phone),
+            EntitiesRequests.getRequestCount(this.session.phone),
+        ])
+        if (requestCount === 0) {
+            this.jobs.addJob(MinersJobs.JOBS.MESSAGE)
+        }
+        if (joinedChannels < MAX_CHANNELS_PER_HOUR) {
+            this.jobs.addJob(MinersJobs.JOBS.JOIN)
+        }
     }
 
     private async catchFlood(func: CallableFunction) {
@@ -301,6 +313,7 @@ export default class BaseMiner {
                 this.session.phone
             )
             if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
+                this.jobs.removeJob(MinersJobs.JOBS.JOIN)
                 return this.switchJob()
             }
 
