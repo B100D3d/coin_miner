@@ -20,13 +20,11 @@ export default class MinerBuilder {
     ): Array<BaseMiner> {
         const channelsQueue = new Queue(1)
         const inputEntities = new InputEntities(session.phone, client)
-        const minerJobs = new MinersJobs()
         const props = {
             client,
             session,
             channelsQueue,
             inputEntities,
-            jobs: minerJobs,
         }
         const ltcMiner = new LtcMiner(props)
         const bchMiner = new BchMiner(props)

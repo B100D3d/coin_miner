@@ -56,7 +56,6 @@ export interface MinerProps {
     channelsQueue: Queue
     inputEntities: InputEntities
     logger: MinerLogger
-    jobs: MinersJobs
 }
 
 export default class BaseMiner {
@@ -89,14 +88,13 @@ export default class BaseMiner {
         channelsQueue,
         logger,
         inputEntities,
-        jobs,
     }: MinerProps) {
         this.client = client
         this.session = session
         this.logger = logger
         this.channelsQueue = channelsQueue
         this.inputEntities = inputEntities
-        this.jobs = jobs
+        this.jobs = new MinersJobs()
 
         this.client.addEventHandler(
             (event) => this.filterEvent(event),
