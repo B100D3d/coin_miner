@@ -3,6 +3,7 @@ import db from "../index"
 import { DBTry } from "../../utils/database"
 import Statistics from "./Statistics"
 import JoinedChannels from "./JoinedChannels"
+import EntitiesRequests from "database/models/EntitiesRequests"
 
 export interface SessionAttributes {
     id: number
@@ -43,6 +44,7 @@ class Session
         const session = await Session.create(payload, { transaction })
         await Statistics.create({ phone: payload.phone }, { transaction })
         await JoinedChannels.create({ phone: payload.phone }, { transaction })
+        await EntitiesRequests.create({ phone: payload.phone }, { transaction })
         return session
     }
 }
