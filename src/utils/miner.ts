@@ -6,7 +6,7 @@ export const parseMiner = (miner: BaseMiner) => ({
     coin: miner.COIN_NAME,
     minWithdraw: miner.MIN_WITHDRAW,
     address: miner.ADDRESS,
-    currentJob: miner.currentJob,
+    currentJob: miner.jobs.currentJob,
     state: miner.state,
     paused: miner.paused,
     completedTasks: miner.completedTasks,

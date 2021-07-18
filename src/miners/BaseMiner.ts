@@ -611,9 +611,13 @@ export default class BaseMiner {
         this.paused = false
         this.startedAt = new Date()
 
-        this.setBalanceTimeout()
-        await this.startClickBot()
-        await this.checkBalance()
-        await this.startJob()
+        try {
+            this.setBalanceTimeout()
+            await this.startClickBot()
+            await this.checkBalance()
+            await this.startJob()
+        } catch (e) {
+            this.logger.error(`Start error ${stringify(serializeError(e))}`)
+        }
     }
 }
