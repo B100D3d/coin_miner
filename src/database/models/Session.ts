@@ -3,7 +3,7 @@ import db from "../index"
 import { DBTry } from "../../utils/database"
 import Statistics from "./Statistics"
 import JoinedChannels from "./JoinedChannels"
-import EntitiesRequests from "database/models/EntitiesRequests"
+import EntitiesRequests from "./EntitiesRequests"
 
 export interface SessionAttributes {
     id: number
