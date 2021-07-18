@@ -2,6 +2,9 @@ import { Api, TelegramClient } from "telegram"
 import bigInt from "big-integer"
 import Entity, { EntityAttributes } from "../database/models/Entity"
 import db from "../database"
+import EntitiesRequests from "../database/models/EntitiesRequests"
+
+export const MAX_REQUESTS_ERROR = "MAX_REQUESTS"
 
 export default class InputEntities {
     private readonly phone: string
@@ -45,6 +48,11 @@ export default class InputEntities {
             return entity
         }
 
+        const requestCount = await EntitiesRequests.getRequestCount(this.phone)
+        if (requestCount >= maxRequests) {
+            throw new Error(MAX_REQUESTS_ERROR)
+        }
+
         const entity = await this.client.getInputEntity(username)
         const accessHash = (entity as any).accessHash?.toString() || ""
         let id = null
@@ -75,6 +83,7 @@ export default class InputEntities {
                 },
                 t
             )
+            await EntitiesRequests.incrementRequestCount(this.phone, t)
         })
 
         return entity

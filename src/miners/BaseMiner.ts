@@ -3,8 +3,8 @@ import { parse as parseHTML } from "node-html-parser"
 import axios from "axios"
 import moment from "moment"
 import qs from "querystring"
-import { TelegramClient, Api } from "telegram"
-import { NewMessageEvent, NewMessage } from "telegram/events"
+import { Api, TelegramClient } from "telegram"
+import { NewMessage, NewMessageEvent } from "telegram/events"
 import { FloodWaitError } from "telegram/errors"
 import { serializeError } from "serialize-error"
 import { getFirstDigits, random, stringify, timeout } from "../utils"
@@ -19,7 +19,6 @@ import Statistics from "../database/models/Statistics"
 import { SessionAttributes } from "../database/models/Session"
 import InputEntities from "../services/InputEntities"
 import MinersJobs from "./MinersJobs"
-import EntitiesRequests from "../database/models/EntitiesRequests"
 
 type State = "working" | "sleep"
 
@@ -48,7 +47,8 @@ const MAX_AMOUNT_WITHDRAW = "💰 Max amount"
 const WITHDRAW_CONFIRM = "✔️ Confirm"
 
 const MAX_CHANNELS_PER_HOUR = 30
-const MAX_REQUESTS_PER_DAY = 30
+const MAX_REQUESTS_PER_DAY = 190
+const CHANNELS_TOO_MUCH_ERROR = "CHANNELS_TOO_MUCH"
 
 export interface MinerProps {
     client: TelegramClient
@@ -104,8 +104,8 @@ export default class BaseMiner {
         )
     }
 
-    private getInputEntity(entity: string | Api.TypeInputPeer) {
-        return this.inputEntities.getInputEntity(entity)
+    private async getInputEntity(entity: string | Api.TypeInputPeer) {
+        return this.inputEntities.getInputEntity(entity, MAX_REQUESTS_PER_DAY)
     }
 
     private setBalanceTimeout() {
@@ -187,19 +187,6 @@ export default class BaseMiner {
         this.logger.log(chalk.blue(`Switch to ${this.jobs.currentJob} job`))
         await this.sleep(2)
         await this.startJob()
-    }
-
-    private async checkJobs() {
-        const [joinedChannels, requestCount] = await Promise.all([
-            JoinedChannels.getJoinedCount(this.session.phone),
-            EntitiesRequests.getRequestCount(this.session.phone),
-        ])
-        if (requestCount === 0) {
-            this.jobs.addJob(MinersJobs.JOBS.MESSAGE)
-        }
-        if (joinedChannels < MAX_CHANNELS_PER_HOUR) {
-            this.jobs.addJob(MinersJobs.JOBS.JOIN)
-        }
     }
 
     private async catchFlood(func: CallableFunction) {
@@ -313,7 +300,6 @@ export default class BaseMiner {
                 this.session.phone
             )
             if (joinedChannels >= MAX_CHANNELS_PER_HOUR) {
-                this.jobs.removeJob(MinersJobs.JOBS.JOIN)
                 return this.switchJob()
             }
 
@@ -341,7 +327,7 @@ export default class BaseMiner {
                 } catch (e) {
                     this.logger.error(`Join channel ${channel} error: ${e}`)
                     console.log(e.message)
-                    if (e.message === "CHANNELS_TOO_MUCH") {
+                    if (e.message === CHANNELS_TOO_MUCH_ERROR) {
                         await this.leaveChannels()
                         await join()
                     } else {

@@ -24,7 +24,7 @@ class EntitiesRequests
     requestsCount!: number
     lastRequestDate!: Date
 
-    @DBTry("Can't get joined count")
+    @DBTry("Can't get request count")
     static async getRequestCount(phone: string) {
         const where = { phone }
         const account = (
@@ -44,7 +44,7 @@ class EntitiesRequests
         return count
     }
 
-    @DBTry("Can't increment joined count")
+    @DBTry("Can't increment request count")
     static async incrementRequestCount(
         phone: string,
         transaction: Transaction
