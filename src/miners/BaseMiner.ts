@@ -217,6 +217,7 @@ export default class BaseMiner {
             await this.catchFlood(func)
             return true
         } catch (e) {
+            console.log({ e, res: e.response })
             this.logger.error(e)
             if (e.message === MAX_REQUESTS_ERROR) {
                 await this.switchJob()
@@ -292,6 +293,10 @@ export default class BaseMiner {
 
     private async channelsHandler(event: NewMessageEvent, url: string) {
         const req = await FlareSolver.get(url)
+        if (req.url.includes("doge.click")) {
+            throw new Error(`Bad url in channels handler: ${req.url}`)
+        }
+
         const reqUrl = new URL(req.url)
         const channel = reqUrl.pathname.replace(/\//g, "")
         const job = Symbol(channel)
@@ -345,6 +350,10 @@ export default class BaseMiner {
 
     private async botsHandler(event: NewMessageEvent, url: string) {
         const req = await FlareSolver.get(url)
+        if (req.url.includes("doge.click")) {
+            throw new Error(`Bad url in bots handler: ${req.url}`)
+        }
+
         const reqUrl = new URL(req.url)
         const startParam = reqUrl.searchParams.get("start")
         const bot = reqUrl.pathname.replace(/\//g, "")
@@ -387,10 +396,7 @@ export default class BaseMiner {
             status,
         } = await FlareSolver.get(url)
         if (status !== 200) {
-            this.logger.error(
-                `Error on visiting site ${url} | status: ${status}`
-            )
-            await this.skipTask(event)
+            throw new Error(`Error on visiting site ${url} | status: ${status}`)
         }
 
         const html = parseHTML(response)

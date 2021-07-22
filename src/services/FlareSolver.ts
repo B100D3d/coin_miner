@@ -8,7 +8,6 @@ const flareSession = "MinerSession"
 const baseProps = {
     session: flareSession,
     password: process.env.FLARE_PASS,
-    maxTimeout: 30000,
 }
 
 interface FlareSolution {
