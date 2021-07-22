@@ -17,7 +17,7 @@ import Queue from "../utils/queue"
 import JoinedChannels from "../database/models/JoinedChannels"
 import Statistics from "../database/models/Statistics"
 import { SessionAttributes } from "../database/models/Session"
-import InputEntities from "../services/InputEntities"
+import InputEntities, { MAX_REQUESTS_ERROR } from "../services/InputEntities"
 import MinersJobs from "./MinersJobs"
 
 type State = "working" | "sleep"
@@ -47,7 +47,7 @@ const MAX_AMOUNT_WITHDRAW = "💰 Max amount"
 const WITHDRAW_CONFIRM = "✔️ Confirm"
 
 const MAX_CHANNELS_PER_HOUR = 30
-const MAX_REQUESTS_PER_DAY = 190
+const MAX_REQUESTS_PER_DAY = 180
 const CHANNELS_TOO_MUCH_ERROR = "CHANNELS_TOO_MUCH"
 
 export interface MinerProps {
@@ -218,7 +218,11 @@ export default class BaseMiner {
             return true
         } catch (e) {
             this.logger.error(e)
-            await this.skipTask(event)
+            if (e.message === MAX_REQUESTS_ERROR) {
+                await this.switchJob()
+            } else {
+                await this.skipTask(event)
+            }
             return false
         }
     }
@@ -376,7 +380,19 @@ export default class BaseMiner {
     private async websiteHandler(event: NewMessageEvent, url: string) {
         this.logger.log(`Visit site ${url}`)
 
-        const { url: reqUrl, userAgent, response } = await FlareSolver.get(url)
+        const {
+            url: reqUrl,
+            userAgent,
+            response,
+            status,
+        } = await FlareSolver.get(url)
+        if (status !== 200) {
+            this.logger.error(
+                `Error on visiting site ${url} | status: ${status}`
+            )
+            await this.skipTask(event)
+        }
+
         const html = parseHTML(response)
 
         const bar = html.querySelector("#headbar")
