@@ -390,13 +390,16 @@ export default class BaseMiner {
         this.logger.log(`Visit site ${url}`)
 
         const {
-            url: reqUrl,
+            url: resUrl,
             userAgent,
             response,
             status,
+            requestCookies,
         } = await FlareSolver.get(url)
         if (status !== 200) {
-            throw new Error(`Error on visiting site ${url} | status: ${status}`)
+            throw new Error(
+                `Error on visiting site ${url} (resUrl: ${resUrl}) | status: ${status}`
+            )
         }
 
         const html = parseHTML(response)
@@ -414,7 +417,7 @@ export default class BaseMiner {
 
         this.logger.log(`Waiting for a headbar timer: ${barTime} seconds...`)
         await this.sleep(barTime)
-        const parsedUrl = new URL(reqUrl)
+        const parsedUrl = new URL(resUrl)
         const rewardUrl = `${parsedUrl.origin}/reward`
         const { data } = await axios.post(
             rewardUrl,
@@ -425,10 +428,11 @@ export default class BaseMiner {
             {
                 headers: {
                     origin: parsedUrl.origin,
-                    referer: reqUrl,
+                    referer: resUrl,
                     "user-agent": userAgent,
                     "Content-Type":
                         "application/x-www-form-urlencoded; charset=UTF-8",
+                    Cookie: requestCookies,
                 },
             }
         )
