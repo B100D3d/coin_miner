@@ -2,7 +2,7 @@ import TelegramBot from "node-telegram-bot-api"
 import Logger from "./logger"
 
 const token = process.env.TELEGRAM_BOT_TOKEN
-const chatId = "-1001331121911"
+const chatId = process.env.TELEGRAM_BOT_CHAT_ID
 const bot = new TelegramBot(token)
 
 class TelegramLogger {
